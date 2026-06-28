@@ -1,0 +1,9 @@
+{
+  "name": "hello-hive",
+  "version": "1.0.0",
+  "description": "Self-contained target that proves the HIVE.md intent-as-source loop end to end.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

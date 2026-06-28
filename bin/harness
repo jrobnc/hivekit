@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Back-compat alias — the canonical entrypoint is now `bin/hivekit`.
+# Existing wiring (slash commands, launchers) that calls `bin/harness` keeps working.
+exec "$(cd "$(dirname "$0")" && pwd)/hivekit" "$@"

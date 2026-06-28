@@ -1,0 +1,358 @@
+#!/usr/bin/env node
+
+// Billing guard lives in bin/harness (a shell wrapper that strips
+// ANTHROPIC_API_KEY before Node starts). Doing it here is too late —
+// ESM imports are hoisted and their top-level code runs before any
+// statement in this file, so the SDK can already have read the env var.
+
+import { mkdir, readFile, appendFile, writeFile } from "fs/promises";
+import { join, resolve } from "path";
+import { execSync } from "child_process";
+import { runPlanner } from "./planner.js";
+import { runGenerator } from "./generator.js";
+import { runEvaluator } from "./evaluator.js";
+import { loadIntent, intentCompilePreamble } from "./intent.js";
+import type { HarnessConfig, Mode, Depth, RunContext, IntentDoc } from "./types.js";
+
+// ── Argument parsing ────────────────────────────────────────────────
+
+function parseArgs(argv: string[]): HarnessConfig {
+  const args = argv.slice(2);
+  let mode: Mode = "review";
+  let depth: Depth = "standard";
+  let focus: string | undefined;
+  let name: string | undefined;
+  let cwd = process.cwd();
+  let sprint: number | undefined;
+  let planFile: string | undefined;
+  let intentFile: string | undefined;
+  let maxTurns: number | undefined;
+  const taskParts: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case "--mode":
+        mode = args[++i] as Mode;
+        break;
+      case "--depth":
+        depth = args[++i] as Depth;
+        break;
+      case "--focus":
+        focus = args[++i];
+        break;
+      case "--name":
+        name = args[++i];
+        break;
+      case "--cwd":
+        cwd = resolve(args[++i]);
+        break;
+      case "--sprint":
+        sprint = parseInt(args[++i], 10);
+        break;
+      case "--plan":
+        planFile = resolve(args[++i]);
+        break;
+      case "--intent":
+        intentFile = resolve(args[++i]);
+        break;
+      case "--max-turns":
+        maxTurns = parseInt(args[++i], 10);
+        break;
+      case "--help":
+      case "-h":
+        printUsage();
+        process.exit(0);
+      default:
+        if (!args[i].startsWith("--")) {
+          taskParts.push(args[i]);
+        }
+    }
+  }
+
+  const task = taskParts.join(" ");
+  // No hard "task required" check here: a run may be driven by --intent or an
+  // auto-discovered HIVE.md instead of a task string. resolveIntent() does the
+  // final check once the filesystem has been consulted.
+
+  // Infer mode from task if not explicitly set
+  if (!args.includes("--mode")) {
+    if (/\b(review|audit|evaluate|assess|check)\b/i.test(task)) {
+      mode = "review";
+    } else if (/\b(build|create|add|implement)\b/i.test(task)) {
+      mode = "build";
+    } else if (/\b(improve|refactor|fix|optimize|upgrade)\b/i.test(task)) {
+      mode = "improve";
+    }
+  }
+
+  return {
+    task,
+    mode,
+    depth,
+    focus,
+    name,
+    cwd,
+    maxEvalRounds: 3,
+    evalThreshold: 60,
+    sprint,
+    planFile,
+    intentFile,
+    maxTurns,
+  };
+}
+
+/**
+ * Resolve the intent source for a run: explicit --intent, else an auto-discovered
+ * HIVE.md / intent.md in the cwd when no task was given. Mutates config (task,
+ * intentFile, mode, name) and returns the parsed IntentDoc, or undefined for a
+ * plain task run. Exits if there is neither a task nor an intent file.
+ */
+async function resolveIntent(config: HarnessConfig): Promise<IntentDoc | undefined> {
+  const explicitMode = process.argv.includes("--mode");
+  let intentPath = config.intentFile;
+
+  if (!intentPath && !config.task) {
+    for (const name of ["HIVE.md", "intent.md"]) {
+      const candidate = join(config.cwd, name);
+      try {
+        await readFile(candidate, "utf-8");
+        intentPath = candidate;
+        break;
+      } catch {
+        // not present — keep looking
+      }
+    }
+  }
+
+  if (!intentPath) {
+    if (!config.task) {
+      console.error(
+        "Error: provide a task, --intent <file>, or a HIVE.md / intent.md in --cwd"
+      );
+      printUsage();
+      process.exit(1);
+    }
+    return undefined;
+  }
+
+  let intent: IntentDoc;
+  try {
+    intent = await loadIntent(intentPath);
+  } catch {
+    console.error(`Error: could not read intent file ${intentPath}`);
+    process.exit(1);
+  }
+
+  config.intentFile = intentPath;
+  config.task = intentCompilePreamble(intent);
+  if (!explicitMode) config.mode = "build"; // compiling an intent is a build by default
+  config.name ??= "hive"; // keep run ids readable (task is now a long preamble)
+  console.log(
+    `[intent] Driving run from ${intentPath} — ${intent.successCriteria.length} success criteria`
+  );
+  return intent;
+}
+
+function printUsage() {
+  console.log(`
+Usage: hivekit <task> [options]
+
+Options:
+  --mode <review|build|improve>   Run mode (default: inferred from task)
+  --depth <quick|standard|deep>   Agent thoroughness (default: standard)
+  --focus <area>                   Focus area (e.g., ios, auth, api)
+  --name <name>                    Human-readable run name
+  --cwd <path>                     Working directory (default: current)
+  --sprint <N>                     Scope build to sprint N from the plan
+  --plan <path>                    Reuse an existing plan file (skip planner)
+  --intent <path>                  Drive the run from a HIVE.md / intent.md (intent-as-source)
+  --max-turns <N>                  Max turns per agent (default: 100 build, 60 improve, 40 review)
+  -h, --help                       Show this help
+
+Examples:
+  hivekit "review the iOS app" --depth deep
+  hivekit "build user authentication" --mode build
+  hivekit "fix the 25 bugs from the last review" --mode improve --focus games
+
+  # Drive a build from a HIVE.md intent file (or drop one in --cwd and omit the task):
+  hivekit --intent HIVE.md --cwd ~/dev/my-app
+  hivekit --cwd ~/dev/my-app   # auto-discovers HIVE.md / intent.md
+
+  # Run a specific sprint from an existing plan:
+  hivekit "build sprint 3" --mode build --sprint 3 --plan .claude/harness/prev-run/plan.md
+`);
+}
+
+// ── Run management ──────────────────────────────────────────────────
+
+function generateRunId(config: HarnessConfig): string {
+  const timestamp = execSync("date +%Y%m%d-%H%M%S").toString().trim();
+  const slug =
+    config.name ??
+    config.focus ??
+    config.task
+      .split(/\s+/)
+      .slice(0, 2)
+      .join("")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  return `${config.mode}-${slug}-${timestamp}`;
+}
+
+async function initRun(config: HarnessConfig): Promise<RunContext> {
+  const runId = generateRunId(config);
+  const runDir = join(config.cwd, ".claude", "harness", runId);
+  const indexPath = join(config.cwd, ".claude", "harness", "index.md");
+
+  await mkdir(runDir, { recursive: true });
+
+  // Ensure index file exists with header
+  try {
+    await readFile(indexPath, "utf-8");
+  } catch {
+    await mkdir(join(config.cwd, ".claude", "harness"), { recursive: true });
+    await writeFile(
+      indexPath,
+      "| Run ID | Mode | Status | Timestamp | Summary |\n|--------|------|--------|-----------|----------|\n",
+      "utf-8"
+    );
+  }
+
+  return { runId, runDir, indexPath, config };
+}
+
+async function updateIndex(
+  ctx: RunContext,
+  status: string,
+  summary: string
+) {
+  const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+  const line = `| ${ctx.runId} | ${ctx.config.mode} | ${status} | ${timestamp} | ${summary} |\n`;
+  await appendFile(ctx.indexPath, line, "utf-8");
+}
+
+// ── Main orchestrator ───────────────────────────────────────────────
+
+async function main() {
+  const config = parseArgs(process.argv);
+  const intent = await resolveIntent(config);
+
+  console.log(`
+┌─────────────────────────────────────────────┐
+│           HARNESS ORCHESTRATOR              │
+├─────────────────────────────────────────────┤
+│ Mode:   ${config.mode.padEnd(36)}│
+│ Depth:  ${config.depth.padEnd(36)}│
+│ Focus:  ${(config.focus ?? "all").padEnd(36)}│
+│ Sprint: ${(config.sprint?.toString() ?? "all").padEnd(36)}│
+│ Plan:   ${(config.planFile ? "reusing" : "generate").padEnd(36)}│
+│ CWD:    ${config.cwd.slice(-35).padEnd(36)}│
+└─────────────────────────────────────────────┘
+`);
+
+  const ctx = await initRun(config);
+  ctx.intent = intent;
+  console.log(`Run ID: ${ctx.runId}`);
+  console.log(`Artifacts: ${ctx.runDir}/\n`);
+
+  try {
+    // ── Phase 1: Planning ────────────────────────────────────────
+    let plan: { planPath: string; planContent: string };
+
+    if (config.planFile) {
+      // Reuse existing plan
+      console.log("═══ Phase 1: Planner (reusing existing plan) ═══");
+      const { readFile: rf, copyFile } = await import("fs/promises");
+      const existingPlan = await rf(config.planFile, "utf-8");
+      const planPath = join(ctx.runDir, "plan.md");
+      await copyFile(config.planFile, planPath);
+      plan = { planPath, planContent: existingPlan };
+      console.log(`Reused plan from ${config.planFile} (${plan.planContent.length} chars)\n`);
+      await updateIndex(ctx, "planning", "Reused existing plan");
+    } else {
+      console.log("═══ Phase 1: Planner ═══");
+      await updateIndex(ctx, "planning", "Planning...");
+      plan = await runPlanner(ctx);
+      console.log(`Plan: ${plan.planContent.length} chars\n`);
+    }
+
+    // ── Phase 2 & 3: Generate → Evaluate loop ───────────────────
+    let round = 0;
+    let evaluatorFeedback: string | undefined;
+
+    while (round < config.maxEvalRounds) {
+      round++;
+
+      // ── Phase 2: Generate ──────────────────────────────────────
+      console.log(`\n═══ Phase 2: Generator (round ${round}) ═══`);
+      await updateIndex(ctx, `generating-r${round}`, `Generator round ${round}`);
+      const genOutput = await runGenerator(ctx, evaluatorFeedback);
+
+      // ── Phase 3: Evaluate ──────────────────────────────────────
+      console.log(`\n═══ Phase 3: Evaluator (round ${round}) ═══`);
+      await updateIndex(ctx, `evaluating-r${round}`, `Evaluator round ${round}`);
+      const evaluation = await runEvaluator(ctx, round, genOutput.findings);
+
+      if (evaluation.passed) {
+        await updateIndex(ctx, "complete", summarizeScores(evaluation));
+        console.log("\n┌─────────────────────────────────────────────┐");
+        console.log("│              HARNESS COMPLETE                │");
+        console.log("└─────────────────────────────────────────────┘");
+        console.log(`Report: ${join(ctx.runDir, "report.md")}`);
+
+        // Print scores
+        if (evaluation.scores.length > 0) {
+          console.log("\nScorecard:");
+          for (const s of evaluation.scores) {
+            const bar = "█".repeat(Math.floor(s.score / 5));
+            console.log(`  ${s.criterion.padEnd(25)} ${s.score}/100 ${bar}`);
+          }
+        }
+        return;
+      }
+
+      // Not passed — loop back to generator with feedback
+      evaluatorFeedback = evaluation.feedback;
+      console.log(
+        `\nRe-running generator with evaluator feedback (round ${round + 1})...\n`
+      );
+
+      // For review mode, don't re-run — reviews are one-shot
+      if (config.mode === "review") {
+        // Reviews always pass in one round (evaluator consolidates, doesn't re-run)
+        await updateIndex(ctx, "complete", "Review consolidated");
+        console.log("Review mode — evaluator output is the final report.");
+        console.log(`Report: ${join(ctx.runDir, "report.md")}`);
+        return;
+      }
+    }
+
+    // Max rounds exhausted
+    await updateIndex(
+      ctx,
+      "complete-partial",
+      `Max rounds (${config.maxEvalRounds}) reached`
+    );
+    console.log(
+      `\nMax evaluation rounds (${config.maxEvalRounds}) reached. Check report for remaining issues.`
+    );
+    console.log(`Report: ${join(ctx.runDir, "report.md")}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await updateIndex(ctx, "failed", msg.slice(0, 80));
+    console.error(`\nHARNESS FAILED: ${msg}`);
+    process.exit(1);
+  }
+}
+
+function summarizeScores(
+  evaluation: { scores: Array<{ criterion: string; score: number }> }
+): string {
+  if (evaluation.scores.length === 0) return "Passed";
+  const avg =
+    evaluation.scores.reduce((sum, s) => sum + s.score, 0) /
+    evaluation.scores.length;
+  return `Avg ${Math.round(avg)}/100 — ${evaluation.scores.length} criteria`;
+}
+
+main();

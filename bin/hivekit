@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Harness launcher — strips ANTHROPIC_API_KEY BEFORE Node starts so the
+# Agent SDK can't resolve to metered API billing. The OAuth (Claude Max)
+# path is then the only credential available, matching the intended billing
+# model. To opt out for a specific run, set HARNESS_ALLOW_API_KEY=1.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENTRY="$SCRIPT_DIR/../dist/index.js"
+
+if [[ -n "${HARNESS_ALLOW_API_KEY:-}" ]]; then
+  exec node "$ENTRY" "$@"
+fi
+
+exec env -u ANTHROPIC_API_KEY node "$ENTRY" "$@"
