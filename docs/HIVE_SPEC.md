@@ -176,7 +176,7 @@ the file is the source of truth and the string is treated as a hint.
   graph in a larger system — never hand-written here.
 - **No marketplace, no platform, no cross-domain compiler — yet.** Those are strategy. The v0.1
   goal is: a `HIVE.md` drives one real harness build, end to end, with the verifier tiers
-  honored. Prove the file→run loop before generalizing to HiveForge/SaaSFactory or non-code
+  honored. Prove the file→run loop before generalizing to larger platforms or non-code
   domains.
 
 ---
