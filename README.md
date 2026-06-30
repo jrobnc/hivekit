@@ -134,14 +134,30 @@ Every agent inherits a shared set of [operating principles](src/prompts/principl
 
 ## When to use · when to skip
 
+hivekit has real overhead: minutes per run, dollars of tokens, and a spec to write — plus you should
+verify the result, because the loop can pass its own evaluation and still be wrong. So the rule is:
+**reach for it when the cost of getting it wrong exceeds that overhead. Otherwise just do the work.**
+
+A quick test — if you answer "no" to all three, do it by hand:
+1. Is the blast radius bigger than I can hold in my head? (multi-file, unfamiliar codebase, regression-risky)
+2. Is getting it wrong expensive? (security, data integrity, money, public-facing)
+3. Can I write a *checkable* done-condition I'd want enforced? (if not, hivekit is the wrong tool)
+
 **Reach for it when**
-- ✅ You can write "done" as checkable criteria
-- ✅ A multi-step build / review / refactor where a single shot misses regressions
-- ✅ You want the done-condition pinned + version-controlled, not in your head
+- ✅ Multi-file features, or work in a codebase you don't know well (the Planner explores for you)
+- ✅ Security / data-integrity / regression-risky changes where a missed edge case is costly
+- ✅ You want an adversarial second opinion (**review** mode) or regression-gated edits (**improve** mode)
+- ✅ "Done" is genuinely checkable and you want it pinned + version-controlled
 
 **Skip it when**
-- ➖ A one-line edit or a quick question — just do it directly
-- ➖ The outcome is purely subjective with no verifier you can name
+- ➖ A single-file or few-line change you could type faster than the spec
+- ➖ Anything you can hold entirely in your head; a typo / config tweak / copy edit
+- ➖ Exploratory work where you're still figuring out *what* you want (no pinnable done-condition)
+
+> **Modes have different thresholds.** `review` is the cheapest to justify — it only reads and
+> reports, so pointing it at code you're unsure about is low-risk, high-value. `build` and `improve`
+> change code you then have to verify, so they need a stronger reason. When in doubt: review is the
+> safe reach; build/improve need a real one.
 
 ## Install
 
