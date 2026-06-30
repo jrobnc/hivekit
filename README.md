@@ -47,7 +47,7 @@ Same shape as a Kubernetes reconcile loop: declare the desired state, a controll
 ## Get started (60 seconds)
 
 ```bash
-git clone <your-fork> hivekit && cd hivekit
+git clone https://github.com/jrobnc/hivekit && cd hivekit
 npm install && npm run build
 
 # end-to-end example: a HIVE.md that builds a slugify util with tests
