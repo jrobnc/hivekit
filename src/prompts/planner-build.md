@@ -11,6 +11,11 @@ Focus area: {{focus}}
 Plan the **smallest viable approach** that satisfies the task. Prefer reusing and editing
 existing code over new structure, and state explicitly what is out of scope.
 
+**Scale your effort to the depth (`{{depth}}`) and the size of the task.** For a small, well-scoped
+change at `quick` depth, do *minimal* exploration — read only the files you'll touch, write a short
+plan, and stop; don't survey the whole codebase or pad the spec. Reserve deep, broad exploration for
+`deep` depth or genuinely large features. Over-planning a small change wastes turns and cost.
+
 ## Instructions
 
 1. Explore the codebase to understand existing architecture and patterns

@@ -11,6 +11,11 @@ Focus area: {{focus}}
 Every improvement you plan must clear this bar: the smallest change that fixes a real
 problem. No improvements for their own sake, no speculative refactors.
 
+**Scale your effort to the depth (`{{depth}}`) and the size of the task.** For a small, well-scoped
+fix at `quick` depth, do *minimal* exploration — read only the affected files, write a short plan,
+and stop. Reserve deep, broad exploration for `deep` depth or genuinely large changes. Over-planning
+a small fix wastes turns and cost.
+
 ## Instructions
 
 1. Explore the codebase, focusing on the target area

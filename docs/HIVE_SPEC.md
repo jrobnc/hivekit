@@ -50,11 +50,19 @@ interprets them. There is no rigid schema and no validator — leniency is inten
 | Section | Required | Purpose |
 |---|---|---|
 | `## Objective` | **Yes** | What outcome, and why. 1–3 sentences. |
+| `## Bet` | Optional | A *falsifiable* hypothesis the work is testing — "if X, then metric Y moves from A→B, measured over Z." Sharpens intent and surfaces the real goal. See note below. |
 | `## Success Criteria` | **Yes** | How "done" is judged. Each line carries a **verifier tag** (§3). This *is* the reconciler's diff function. |
 | `## Constraints` | Recommended | What must hold / must not change — stack, budget, deadline, "don't touch X". |
 | `## Out of Scope` | Recommended | Explicit non-goals. The restraint boundary; keeps the compiler from sprawling. |
 | `## Evidence` | Optional | Pointers to source material (links, files, notes). Context discipline applies: the Planner cites/summarizes, does not dump. |
 | `## Audience` | Optional | Who it's for / the "first win" — the fastest path to a real outcome for the user. |
+
+> **On `## Bet` — falsifiable intent.** Instead of "build onboarding," write: *"If new users
+> finish onboarding in under 90s, activation rises from 42% to 55%, measured over 7 days."* This
+> forces the real goal into the open. **Honest limit:** a Bet is usually a *production* metric, which
+> the build-time loop **cannot** verify — so its acceptance is a `[human]` (or future production-
+> reconciliation) criterion, not an `[auto]` one. The Bet shapes *what* to build and *how to judge it
+> later*; don't mistake stating a Bet for being able to check it at build time.
 
 Only **Success Criteria** flow structurally to the Evaluator. Everything else is read by the
 Planner as compilation context. Unknown sections are ignored, not errors.
