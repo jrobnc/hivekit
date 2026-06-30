@@ -28,6 +28,8 @@ export interface HarnessConfig {
   planFile?: string;
   /** Path to a HIVE.md / intent.md that drives the run (intent-as-source) */
   intentFile?: string;
+  /** Also emit a structured intent.yaml alongside the markdown artifacts */
+  emitYaml?: boolean;
   /** Max turns per agent (default: 100 for build, 60 for improve, 40 for review) */
   maxTurns?: number;
 }

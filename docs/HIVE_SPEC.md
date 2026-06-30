@@ -67,6 +67,15 @@ interprets them. There is no rigid schema and no validator — leniency is inten
 Only **Success Criteria** flow structurally to the Evaluator. Everything else is read by the
 Planner as compilation context. Unknown sections are ignored, not errors.
 
+### Structured (YAML) view — `--yaml`
+
+Markdown is the **authoring** format and the source of truth. For *machine* consumption (tooling,
+plugins, dashboards, APIs), `hivekit --yaml` additionally emits a compiled `intent.yaml` into the run
+artifacts — `objective`, `constraints`, `out_of_scope`, and `success_criteria` as a list of
+`{tier, text}`. It's an **output**, not an input: you still author markdown, and the YAML is a
+derived view that downstream tools can parse deterministically. Off by default; nothing depends on it
+yet — it exists so a future structured consumer doesn't force YAML onto the human authoring layer.
+
 ---
 
 ## 3. Verifier tiers — the heart of the spec

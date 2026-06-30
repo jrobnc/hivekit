@@ -182,6 +182,7 @@ A top-of-file `delete process.env.ANTHROPIC_API_KEY` would be too late — ES mo
 | Flag | Values | Default | Description |
 |------|--------|---------|-------------|
 | `--intent` | file path | auto-discovered | Drive the run from a `HIVE.md` / `intent.md` |
+| `--yaml` | flag | off | Also emit a structured `intent.yaml` alongside the markdown artifacts (machine view for tooling; markdown stays the source of truth) |
 | `--mode` | `review`, `build`, `improve` | inferred | Run mode |
 | `--depth` | `quick`, `standard`, `deep` | `standard` | Agent thoroughness |
 | `--focus` | string | none | Focus area (e.g. `ios`, `auth`) |

@@ -11,7 +11,7 @@ import { execSync } from "child_process";
 import { runPlanner } from "./planner.js";
 import { runGenerator } from "./generator.js";
 import { runEvaluator } from "./evaluator.js";
-import { loadIntent, intentCompilePreamble } from "./intent.js";
+import { loadIntent, intentCompilePreamble, toIntentYaml } from "./intent.js";
 import type { HarnessConfig, Mode, Depth, RunContext, IntentDoc } from "./types.js";
 
 // ── Argument parsing ────────────────────────────────────────────────
@@ -26,6 +26,7 @@ function parseArgs(argv: string[]): HarnessConfig {
   let sprint: number | undefined;
   let planFile: string | undefined;
   let intentFile: string | undefined;
+  let emitYaml = false;
   let maxTurns: number | undefined;
   const taskParts: string[] = [];
 
@@ -54,6 +55,9 @@ function parseArgs(argv: string[]): HarnessConfig {
         break;
       case "--intent":
         intentFile = resolve(args[++i]);
+        break;
+      case "--yaml":
+        emitYaml = true;
         break;
       case "--max-turns":
         maxTurns = parseInt(args[++i], 10);
@@ -97,6 +101,7 @@ function parseArgs(argv: string[]): HarnessConfig {
     sprint,
     planFile,
     intentFile,
+    emitYaml,
     maxTurns,
   };
 }
@@ -166,6 +171,7 @@ Options:
   --sprint <N>                     Scope build to sprint N from the plan
   --plan <path>                    Reuse an existing plan file (skip planner)
   --intent <path>                  Drive the run from a HIVE.md / intent.md (intent-as-source)
+  --yaml                           Also emit a structured intent.yaml alongside the markdown (opt-in)
   --max-turns <N>                  Max turns per agent (default: 100 build, 60 improve, 40 review)
   -h, --help                       Show this help
 
@@ -254,6 +260,18 @@ async function main() {
   ctx.intent = intent;
   console.log(`Run ID: ${ctx.runId}`);
   console.log(`Artifacts: ${ctx.runDir}/\n`);
+
+  // Opt-in structured view: emit the compiled intent as YAML for downstream tooling.
+  // Markdown stays the source of truth; this is an additional machine-readable artifact.
+  if (config.emitYaml) {
+    if (intent) {
+      const yamlPath = join(ctx.runDir, "intent.yaml");
+      await writeFile(yamlPath, toIntentYaml(intent), "utf-8");
+      console.log(`[intent] structured YAML written: ${yamlPath}\n`);
+    } else {
+      console.log("[intent] --yaml ignored: no HIVE.md / intent.md drives this run\n");
+    }
+  }
 
   try {
     // ── Phase 1: Planning ────────────────────────────────────────

@@ -69,6 +69,47 @@ ${intent.raw}
 --- end HIVE.md ---`;
 }
 
+// ── Structured (YAML) emit — opt-in machine view via --yaml ──────────
+// Markdown stays the source of truth; this is a compiled, machine-readable view
+// for downstream tooling. No YAML dependency: block scalars (|) need no escaping,
+// and single-line criteria text is double-quoted with \ and " escaped.
+
+function yamlBlock(key: string, value: string): string {
+  const body = (value || "")
+    .split(/\r?\n/)
+    .map((l) => "  " + l) // 2-space indent under the key
+    .join("\n");
+  return `${key}: |\n${body}`;
+}
+
+function yamlQuote(s: string): string {
+  const oneLine = s.replace(/\r?\n/g, " ").trim();
+  return `"${oneLine.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/** Compile an IntentDoc into a structured YAML view (the --yaml artifact). */
+export function toIntentYaml(intent: IntentDoc): string {
+  const out: string[] = [
+    "# Compiled from HIVE.md by hivekit — structured view for tooling.",
+    "# Markdown remains the source of truth; regenerate with --yaml.",
+    yamlBlock("objective", intent.objective),
+  ];
+  const constraints = extractSection(intent.raw, "Constraints");
+  const outOfScope = extractSection(intent.raw, "Out of Scope");
+  if (constraints) out.push(yamlBlock("constraints", constraints));
+  if (outOfScope) out.push(yamlBlock("out_of_scope", outOfScope));
+  if (intent.successCriteria.length === 0) {
+    out.push("success_criteria: []");
+  } else {
+    out.push("success_criteria:");
+    for (const c of intent.successCriteria) {
+      out.push(`  - tier: ${c.tier}`);
+      out.push(`    text: ${yamlQuote(c.text)}`);
+    }
+  }
+  return out.join("\n") + "\n";
+}
+
 /** Render the pinned criteria + tier-routing instructions for the Evaluator.
  *  Empty string when there is no intent (preserves the prior bare-task behavior). */
 export function formatCriteriaForEvaluator(intent?: IntentDoc): string {

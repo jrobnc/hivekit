@@ -7,6 +7,7 @@ import {
   extractSection,
   extractSuccessCriteria,
   formatCriteriaForEvaluator,
+  toIntentYaml,
 } from "../dist/intent.js";
 
 const SAMPLE = `# HIVE.md
@@ -75,4 +76,35 @@ test("formatCriteriaForEvaluator renders criteria + human-gate routing", () => {
   assert.ok(out.includes("[human]"));
   assert.ok(out.includes("PENDING HUMAN SIGN-OFF"));
   assert.ok(out.includes("1. [auto]"));
+});
+
+test("toIntentYaml emits structured objective + tiered criteria + constraints", () => {
+  const yaml = toIntentYaml({
+    raw: SAMPLE,
+    objective: extractSection(SAMPLE, "Objective"),
+    successCriteria: extractSuccessCriteria(SAMPLE),
+  });
+  assert.ok(yaml.includes("objective: |"));
+  assert.ok(yaml.includes("success_criteria:"));
+  assert.ok(yaml.includes("- tier: auto"));
+  assert.ok(yaml.includes("- tier: judge"));
+  assert.ok(yaml.includes("- tier: human"));        // explicit + the untagged-default one
+  assert.ok(yaml.includes("constraints: |"));
+  assert.ok(yaml.includes("Use the existing Supabase project"));
+});
+
+test("toIntentYaml escapes quotes/backslashes in criterion text (valid YAML scalars)", () => {
+  const yaml = toIntentYaml({
+    raw: "",
+    objective: "x",
+    successCriteria: [{ tier: "auto", text: 'has a "quote" and a \\ backslash' }],
+  });
+  // double-quoted scalar with both escaped
+  assert.ok(yaml.includes('\\"quote\\"'));
+  assert.ok(yaml.includes("\\\\ backslash"));
+});
+
+test("toIntentYaml renders empty criteria as a flow-empty list", () => {
+  const yaml = toIntentYaml({ raw: "", objective: "x", successCriteria: [] });
+  assert.ok(yaml.includes("success_criteria: []"));
 });
