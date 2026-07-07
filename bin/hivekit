@@ -3,13 +3,38 @@
 # Agent SDK can't resolve to metered API billing. The OAuth (Claude Max)
 # path is then the only credential available, matching the intended billing
 # model. To opt out for a specific run, set HARNESS_ALLOW_API_KEY=1.
+#
+# Also strips the parent's Claude Code session env vars (CLAUDECODE,
+# CLAUDE_CODE_SESSION_ID, etc.) before exec'ing Node. When bin/hivekit is
+# invoked from inside an already-running Claude Code session (e.g. via its
+# Bash tool), those vars otherwise leak into the `claude` subprocess the
+# Agent SDK spawns for the Planner/Generator/Evaluator, and that subprocess
+# crashes on startup with "Claude Code process exited with code 1" — it
+# tries to attach to a session that isn't its own. CLAUDE_CODE_OAUTH_TOKEN
+# is deliberately NOT in this list; that's the auth credential the
+# subprocess needs.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENTRY="$SCRIPT_DIR/../dist/index.js"
 
+NESTED_SESSION_VARS=(
+  CLAUDECODE
+  CLAUDE_CODE_ENTRYPOINT
+  CLAUDE_CODE_EXECPATH
+  CLAUDE_CODE_SESSION_ID
+  CLAUDE_CODE_CHILD_SESSION
+  CLAUDE_EFFORT
+  ANTHROPIC_MODEL
+  AI_AGENT
+)
+UNSET_ARGS=()
+for name in "${NESTED_SESSION_VARS[@]}"; do
+  UNSET_ARGS+=(-u "$name")
+done
+
 if [[ -n "${HARNESS_ALLOW_API_KEY:-}" ]]; then
-  exec node "$ENTRY" "$@"
+  exec env "${UNSET_ARGS[@]}" node "$ENTRY" "$@"
 fi
 
-exec env -u ANTHROPIC_API_KEY node "$ENTRY" "$@"
+exec env -u ANTHROPIC_API_KEY "${UNSET_ARGS[@]}" node "$ENTRY" "$@"
