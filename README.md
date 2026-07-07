@@ -8,7 +8,9 @@
 ╚═╝  ╚═╝ ╚═╝   ╚═══╝   ╚══════╝ ╚═╝  ╚═╝ ╚═╝    ╚═╝   
 </pre>
 
-**Intent-as-source for AI agents — the reference compiler for `HIVE.md`**
+**Declare what done means — hivekit builds until it's true.**
+
+*Terraform for software* — intent-as-source for AI agents, the reference compiler for `HIVE.md`
 
 write intent · verify by tiers · reconcile to green · Planner → Generator → Evaluator · Claude Max OAuth · Apache-2.0
 
@@ -42,7 +44,7 @@ HIVE.md  ──►  Planner  ──►  plan.md  ──►  Generator  ──►
 - **Generator** (Opus / Sonnet) writes the code.
 - **Evaluator** (Opus) grades the result against your **Success Criteria** — running `[auto]` checks for real, judging `[judge]` ones, gating `[human]` ones — and loops until they hold.
 
-Same shape as a Kubernetes reconcile loop: declare the desired state, a controller drives reality toward it.
+Same shape as Terraform or a Kubernetes reconcile loop: declare the desired state, a controller drives reality toward it — except here the desired state is *what "done" means*, and the controller is a build loop.
 
 ## Get started (60 seconds)
 

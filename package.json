@@ -1,7 +1,7 @@
 {
   "name": "hivekit",
   "version": "1.0.0",
-  "description": "Reference compiler for HIVE.md — intent-as-source for AI agents",
+  "description": "Declare what done means — hivekit builds until it's true. Reference compiler for HIVE.md (intent-as-source for AI agents)",
   "type": "module",
   "bin": {
     "hivekit": "./bin/hivekit",
