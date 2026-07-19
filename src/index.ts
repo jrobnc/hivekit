@@ -7,6 +7,7 @@
 
 import { mkdir, readFile, appendFile, writeFile, copyFile } from "fs/promises";
 import { join, resolve } from "path";
+import { fileURLToPath } from "url";
 import { runPlanner } from "./planner.js";
 import { runGenerator } from "./generator.js";
 import { runEvaluator } from "./evaluator.js";
@@ -39,12 +40,24 @@ function parseArgs(argv: string[]): HarnessConfig {
     };
 
     switch (args[i]) {
-      case "--mode":
-        mode = nextArg("--mode") as Mode;
+      case "--mode": {
+        const val = nextArg("--mode");
+        if (!["review", "build", "improve"].includes(val)) {
+          console.error(`Error: --mode must be review, build, or improve (got "${val}")`);
+          process.exit(1);
+        }
+        mode = val as Mode;
         break;
-      case "--depth":
-        depth = nextArg("--depth") as Depth;
+      }
+      case "--depth": {
+        const val = nextArg("--depth");
+        if (!["quick", "standard", "deep"].includes(val)) {
+          console.error(`Error: --depth must be quick, standard, or deep (got "${val}")`);
+          process.exit(1);
+        }
+        depth = val as Depth;
         break;
+      }
       case "--focus":
         focus = nextArg("--focus");
         break;
@@ -211,19 +224,18 @@ Examples:
 
 // ── Run management ──────────────────────────────────────────────────
 
-function generateRunId(config: HarnessConfig): string {
+export function generateRunId(config: HarnessConfig): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const slug =
+  const raw =
     config.name ??
     config.focus ??
     config.task
       .split(/\s+/)
       .slice(0, 2)
-      .join("")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "");
+      .join("");
+  const slug = raw.toLowerCase().replace(/[^a-z0-9-]/g, "") || "run";
   return `${config.mode}-${slug}-${timestamp}`;
 }
 
@@ -347,7 +359,8 @@ async function main() {
 
       // For review mode, don't re-run — reviews are one-shot
       if (config.mode === "review") {
-        const status = evaluation.passed ? "complete" : "complete-review-failed";
+        // evaluation.passed is always false here (true case returned early above)
+        const status = "complete-review-failed";
         await updateIndex(ctx, status, summarizeScores(evaluation));
         printScorecard(evaluation.scores);
         console.log(`\nReview mode — evaluator output is the final report.`);
@@ -403,4 +416,8 @@ function summarizeScores(
   return `Avg ${Math.round(avg)}/100 — ${evaluation.scores.length} criteria`;
 }
 
-main();
+// Only run main() when this file is the entry point (not when imported for tests)
+const __filename = fileURLToPath(import.meta.url);
+if (resolve(process.argv[1] ?? "") === __filename) {
+  main();
+}

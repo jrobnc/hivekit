@@ -230,9 +230,18 @@ async function runImproveGenerators(
       merged.push(`# Agent ${i + 1}\n\n_No progress recorded._`);
     }
   }
+  checkImproveFailures(merged, agentCount);
   await writeFile(join(runDir, "progress.md"), merged.join("\n\n---\n\n"), "utf-8");
 
   console.log("[generator] All improvement agents complete");
+}
+
+/** Throw if a majority of improve agents produced no meaningful progress. */
+export function checkImproveFailures(merged: string[], agentCount: number): void {
+  const failedCount = merged.filter(m => m.includes("_No progress recorded._")).length;
+  if (failedCount > agentCount / 2) {
+    throw new Error(`Majority of improve agents failed (${failedCount}/${agentCount} produced no progress) — aborting`);
+  }
 }
 
 // ── Entry point ─────────────────────────────────────────────────────

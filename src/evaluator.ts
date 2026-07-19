@@ -30,7 +30,7 @@ export function parseEvaluation(text: string, threshold: number): EvaluationResu
   let match: RegExpExecArray | null;
   while ((match = tablePattern.exec(text)) !== null) {
     const criterion = match[1].trim();
-    if (criterion === "---" || criterion.startsWith("-")) continue;
+    if (criterion.startsWith("-")) continue;
     scores.push({
       criterion,
       score: parseInt(match[2], 10),
@@ -57,7 +57,18 @@ export function parseEvaluation(text: string, threshold: number): EvaluationResu
   const explicitFail = /EVALUATION:\s*FAIL/i.test(text);
   const allAboveThreshold =
     scores.length > 0 && scores.every((s) => s.score >= threshold);
-  const passed = !explicitFail && (scores.length === 0 || allAboveThreshold);
+
+  // Fail closed: non-empty output with no parseable scores is ambiguous
+  if (scores.length === 0) {
+    return {
+      scores: [],
+      passed: false,
+      feedback: "Evaluator produced output but no parseable scores — failing closed. Ensure the evaluator emits a scorecard table (| Criterion | xx/100 | Assessment |).",
+      report: text,
+    };
+  }
+
+  const passed = !explicitFail && allAboveThreshold;
 
   return {
     scores,

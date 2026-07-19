@@ -109,5 +109,11 @@ export function fillTemplate(
   for (const [key, value] of Object.entries(vars)) {
     result = result.replaceAll(`{{${key}}}`, value);
   }
+  // Warn about any unfilled placeholders left after substitution
+  const unfilled = [...result.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]);
+  if (unfilled.length > 0) {
+    const unique = [...new Set(unfilled)];
+    console.warn(`[fillTemplate] WARNING: unfilled placeholders: ${unique.join(", ")}`);
+  }
   return result;
 }

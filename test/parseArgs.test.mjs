@@ -53,6 +53,18 @@ test("--max-turns abc exits non-zero with helpful error", () => {
   assert.match(stderr || "", /--max-turns requires a numeric value/);
 });
 
+test("--mode banana exits non-zero with valid options listed", () => {
+  const { code, stderr } = run(["--mode", "banana"]);
+  assert.equal(code, 1);
+  assert.match(stderr || "", /--mode must be review, build, or improve/);
+});
+
+test("--depth extreme exits non-zero with valid options listed", () => {
+  const { code, stderr } = run(["--depth", "extreme"]);
+  assert.equal(code, 1);
+  assert.match(stderr || "", /--depth must be quick, standard, or deep/);
+});
+
 test("--help exits 0 (valid args baseline)", () => {
   const { code } = run(["--help"]);
   assert.equal(code, 0);

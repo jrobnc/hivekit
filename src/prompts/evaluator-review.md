@@ -16,6 +16,8 @@ Evaluate review findings from multiple review agents and produce a consolidated,
 
 Read ALL files in the findings directory. Each is a JSON file from a different review dimension.
 
+{{successCriteria}}
+
 ## Process
 
 ### 1. Deduplicate

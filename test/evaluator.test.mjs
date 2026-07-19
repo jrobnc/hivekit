@@ -63,13 +63,20 @@ test("case-insensitive FAIL marker fails closed", () => {
   assert.equal(r.passed, false);
 });
 
-test("no scores + no FAIL marker defaults to pass (documented behavior)", () => {
-  // A clean pass where the agent wrote the report to a file and returned only a
-  // short confirmation. Default-pass is acceptable here BECAUSE any parsed score
-  // below threshold (prior tests) and any FAIL marker both fail closed.
+test("no scores + no FAIL marker fails closed (no parseable scorecard)", () => {
+  // Non-empty output with zero parsed scores is ambiguous — fail closed to prevent
+  // unverified code from passing the gate.
   const r = parseEvaluation("All criteria met. Report written to report.md.", THRESHOLD);
-  assert.equal(r.passed, true);
+  assert.equal(r.passed, false);
   assert.equal(r.scores.length, 0);
+  assert.ok(r.feedback.includes("no parseable scores"));
+});
+
+test("narrative without scores fails closed", () => {
+  const r = parseEvaluation("The code looks great and passes all checks. Ship it!", THRESHOLD);
+  assert.equal(r.passed, false);
+  assert.equal(r.scores.length, 0);
+  assert.ok(r.feedback.includes("no parseable scores"));
 });
 
 test("separator rows are not parsed as criteria", () => {
