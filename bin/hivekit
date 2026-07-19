@@ -34,6 +34,7 @@ for name in "${NESTED_SESSION_VARS[@]}"; do
 done
 
 if [[ -n "${HARNESS_ALLOW_API_KEY:-}" ]]; then
+  echo "[hivekit] WARNING: HARNESS_ALLOW_API_KEY is set — ANTHROPIC_API_KEY will NOT be stripped. Billing may use metered API key." >&2
   exec env "${UNSET_ARGS[@]}" node "$ENTRY" "$@"
 fi
 

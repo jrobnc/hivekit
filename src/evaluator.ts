@@ -9,6 +9,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Parse evaluator output to determine pass/fail and extract scores */
 export function parseEvaluation(text: string, threshold: number): EvaluationResult {
+  // Fail closed: empty output means the evaluator crashed or timed out.
+  if (!text.trim()) {
+    return {
+      scores: [],
+      passed: false,
+      feedback: "Evaluator returned empty output — treating as failure (fail-closed)",
+      report: "",
+    };
+  }
+
   const scores: EvaluationResult["scores"] = [];
 
   // Extract from markdown table: | Criterion | xx/100 | Assessment |

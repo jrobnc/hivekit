@@ -46,7 +46,7 @@ async function runReviewGenerators(
     `[generator] Launching ${dimensions.length} review agents in parallel...`
   );
 
-  const tasks = dimensions.map(async (dim) => {
+  async function runOneDimension(dim: string): Promise<DimensionFindings> {
     const findingsPath = join(findingsDir, `${dim}.json`);
     const prompt = fillTemplate(template, {
       dimension: dim,
@@ -89,9 +89,24 @@ async function runReviewGenerators(
         findings: [],
       } as DimensionFindings;
     }
-  });
+  }
 
-  return Promise.all(tasks);
+  // Batch in groups of 3 to avoid rate-limit errors from too many simultaneous API calls
+  const BATCH_SIZE = 3;
+  const results: DimensionFindings[] = [];
+  for (let b = 0; b < dimensions.length; b += BATCH_SIZE) {
+    const batch = dimensions.slice(b, b + BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map(runOneDimension));
+    results.push(...batchResults);
+  }
+  const emptyCount = results.filter(r => r.findings.length === 0).length;
+  if (emptyCount > 0) {
+    console.warn(`[generator] WARNING: ${emptyCount}/${results.length} review agents returned empty findings`);
+  }
+  if (emptyCount > results.length / 2) {
+    throw new Error(`Majority of review agents failed (${emptyCount}/${results.length} empty) — aborting`);
+  }
+  return results;
 }
 
 // ── Build mode: single long-running agent ───────────────────────────

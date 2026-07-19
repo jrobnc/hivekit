@@ -31,45 +31,65 @@ function parseArgs(argv: string[]): HarnessConfig {
   const taskParts: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
+    const nextArg = (flag: string): string => {
+      if (i + 1 >= args.length) {
+        console.error(`Error: ${flag} requires a value`);
+        process.exit(1);
+      }
+      return args[++i];
+    };
+
     switch (args[i]) {
       case "--mode":
-        mode = args[++i] as Mode;
+        mode = nextArg("--mode") as Mode;
         break;
       case "--depth":
-        depth = args[++i] as Depth;
+        depth = nextArg("--depth") as Depth;
         break;
       case "--focus":
-        focus = args[++i];
+        focus = nextArg("--focus");
         break;
       case "--name":
-        name = args[++i];
+        name = nextArg("--name");
         break;
       case "--cwd":
-        cwd = resolve(args[++i]);
+        cwd = resolve(nextArg("--cwd"));
         break;
-      case "--sprint":
-        sprint = parseInt(args[++i], 10);
+      case "--sprint": {
+        sprint = parseInt(nextArg("--sprint"), 10);
+        if (isNaN(sprint)) {
+          console.error("Error: --sprint requires a numeric value");
+          process.exit(1);
+        }
         break;
+      }
       case "--plan":
-        planFile = resolve(args[++i]);
+        planFile = resolve(nextArg("--plan"));
         break;
       case "--intent":
-        intentFile = resolve(args[++i]);
+        intentFile = resolve(nextArg("--intent"));
         break;
       case "--yaml":
         emitYaml = true;
         break;
-      case "--max-turns":
-        maxTurns = parseInt(args[++i], 10);
+      case "--max-turns": {
+        maxTurns = parseInt(nextArg("--max-turns"), 10);
+        if (isNaN(maxTurns)) {
+          console.error("Error: --max-turns requires a numeric value");
+          process.exit(1);
+        }
         break;
+      }
       case "--help":
       case "-h":
         printUsage();
         process.exit(0);
       default:
-        if (!args[i].startsWith("--")) {
-          taskParts.push(args[i]);
+        if (args[i].startsWith("--")) {
+          console.error(`Error: unknown flag ${args[i]}`);
+          process.exit(1);
         }
+        taskParts.push(args[i]);
     }
   }
 
@@ -329,20 +349,27 @@ async function main() {
         return;
       }
 
+      // For review mode, don't re-run — reviews are one-shot
+      if (config.mode === "review") {
+        const status = evaluation.passed ? "complete" : "complete-review-failed";
+        await updateIndex(ctx, status, summarizeScores(evaluation));
+        if (evaluation.scores.length > 0) {
+          console.log("\nScorecard:");
+          for (const s of evaluation.scores) {
+            const bar = "█".repeat(Math.floor(s.score / 5));
+            console.log(`  ${s.criterion.padEnd(25)} ${s.score}/100 ${bar}`);
+          }
+        }
+        console.log(`\nReview mode — evaluator output is the final report.`);
+        console.log(`Report: ${join(ctx.runDir, "report.md")}`);
+        return;
+      }
+
       // Not passed — loop back to generator with feedback
       evaluatorFeedback = evaluation.feedback;
       console.log(
         `\nRe-running generator with evaluator feedback (round ${round + 1})...\n`
       );
-
-      // For review mode, don't re-run — reviews are one-shot
-      if (config.mode === "review") {
-        // Reviews always pass in one round (evaluator consolidates, doesn't re-run)
-        await updateIndex(ctx, "complete", "Review consolidated");
-        console.log("Review mode — evaluator output is the final report.");
-        console.log(`Report: ${join(ctx.runDir, "report.md")}`);
-        return;
-      }
     }
 
     // Max rounds exhausted

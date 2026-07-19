@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -58,6 +58,61 @@ test("bin/hivekit strips parent Claude Code session env vars before exec'ing nod
     assert.ok(
       output.includes("CLAUDE_CODE_OAUTH_TOKEN=keep-me"),
       "CLAUDE_CODE_OAUTH_TOKEN must NOT be stripped — it's the OAuth credential"
+    );
+  } finally {
+    rmSync(fakeNodeDir, { recursive: true, force: true });
+  }
+});
+
+test("bin/hivekit warns on stderr when HARNESS_ALLOW_API_KEY is set and preserves ANTHROPIC_API_KEY", () => {
+  const fakeNodeDir = mkdtempSync(join(tmpdir(), "hivekit-fake-node-"));
+  const fakeNode = join(fakeNodeDir, "node");
+  writeFileSync(fakeNode, "#!/usr/bin/env bash\nenv\n");
+  chmodSync(fakeNode, 0o755);
+
+  try {
+    const result = execFileSync("bash", [hivekitBin, "--help"], {
+      env: {
+        ...process.env,
+        PATH: `${fakeNodeDir}:${process.env.PATH}`,
+        HARNESS_ALLOW_API_KEY: "1",
+        ANTHROPIC_API_KEY: "sk-test-key",
+      },
+      encoding: "utf-8",
+      // exec replaces process so stderr comes from the echo before exec
+      // We need to capture stderr separately
+    });
+
+    // When HARNESS_ALLOW_API_KEY is set, ANTHROPIC_API_KEY must survive
+    assert.ok(
+      result.includes("ANTHROPIC_API_KEY=sk-test-key"),
+      "ANTHROPIC_API_KEY must survive when HARNESS_ALLOW_API_KEY is set"
+    );
+  } finally {
+    rmSync(fakeNodeDir, { recursive: true, force: true });
+  }
+});
+
+test("bin/hivekit HARNESS_ALLOW_API_KEY warning appears on stderr", () => {
+  const fakeNodeDir = mkdtempSync(join(tmpdir(), "hivekit-fake-node-"));
+  const fakeNode = join(fakeNodeDir, "node");
+  writeFileSync(fakeNode, "#!/usr/bin/env bash\nenv\n");
+  chmodSync(fakeNode, 0o755);
+
+  try {
+    const proc = spawnSync("bash", [hivekitBin, "--help"], {
+      env: {
+        ...process.env,
+        PATH: `${fakeNodeDir}:${process.env.PATH}`,
+        HARNESS_ALLOW_API_KEY: "1",
+        ANTHROPIC_API_KEY: "sk-test-key",
+      },
+      encoding: "utf-8",
+    });
+
+    assert.ok(
+      proc.stderr.includes("WARNING: HARNESS_ALLOW_API_KEY is set"),
+      `expected warning on stderr, got: ${proc.stderr}`
     );
   } finally {
     rmSync(fakeNodeDir, { recursive: true, force: true });

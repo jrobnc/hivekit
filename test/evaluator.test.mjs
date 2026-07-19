@@ -86,3 +86,17 @@ test("exact threshold boundary passes (>= not >)", () => {
   const r = parseEvaluation("- Restraint: 60/100", THRESHOLD);
   assert.equal(r.passed, true);
 });
+
+test("empty string fails closed (evaluator crash/timeout)", () => {
+  const r = parseEvaluation("", THRESHOLD);
+  assert.equal(r.passed, false);
+  assert.equal(r.scores.length, 0);
+  assert.ok(r.feedback.includes("fail-closed"));
+});
+
+test("whitespace-only string fails closed", () => {
+  const r = parseEvaluation("   \n\t  \n  ", THRESHOLD);
+  assert.equal(r.passed, false);
+  assert.equal(r.scores.length, 0);
+  assert.ok(r.feedback.includes("fail-closed"));
+});
