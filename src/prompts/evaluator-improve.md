@@ -41,10 +41,12 @@ For each improvement in the spec:
 spec: unrelated refactors, speculative abstractions, new dependencies, or churn the Improvement
 Spec did not call for. Scope creep is a regression against the plan, not a bonus.
 
+Score each criterion 0-100. **Pass** requires all scores ≥ {{threshold}}.
+
 ### 5. Decide: Pass or Fail
 
-**Pass** (all improvements verified, no regressions): Write the final report.
-**Fail** (missing improvements or regressions): Return feedback for another round.
+**Pass** (all scores ≥ {{threshold}}, all improvements verified, no regressions): Write the final report.
+**Fail** (any score < {{threshold}}, or missing improvements or regressions): Return feedback for another round.
 
 ## Output
 

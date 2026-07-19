@@ -5,9 +5,24 @@ import { runAgent, fillTemplate, loadPrinciples } from "./sdk-utils.js";
 import type {
   RunContext,
   GeneratorOutput,
+  Depth,
   DimensionFindings,
 } from "./types.js";
-import { REVIEW_DIMENSIONS } from "./types.js";
+
+/** Review dimensions scaled by depth */
+const REVIEW_DIMENSIONS: Record<Depth, string[]> = {
+  quick: ["architecture", "bugs", "security"],
+  standard: ["architecture", "bugs", "security", "performance", "ux"],
+  deep: [
+    "architecture",
+    "bugs",
+    "security",
+    "performance",
+    "ux",
+    "platform",
+    "consistency",
+  ],
+};
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HARNESS_ROOT = join(__dirname, "..");

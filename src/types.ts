@@ -32,6 +32,8 @@ export interface HarnessConfig {
   emitYaml?: boolean;
   /** Max turns per agent (default: 100 for build, 60 for improve, 40 for review) */
   maxTurns?: number;
+  /** Whether --mode was explicitly provided on the command line */
+  explicitMode?: boolean;
 }
 
 export interface RunContext {
@@ -84,17 +86,3 @@ export interface GeneratorOutput {
   progressPath?: string;
 }
 
-/** Review dimensions scaled by depth */
-export const REVIEW_DIMENSIONS: Record<Depth, string[]> = {
-  quick: ["architecture", "bugs", "security"],
-  standard: ["architecture", "bugs", "security", "performance", "ux"],
-  deep: [
-    "architecture",
-    "bugs",
-    "security",
-    "performance",
-    "ux",
-    "platform",
-    "consistency",
-  ],
-};

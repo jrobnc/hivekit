@@ -3,7 +3,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples } from "./sdk-utils.js";
 import { formatCriteriaForEvaluator } from "./intent.js";
-import type { RunContext, EvaluationResult, DimensionFindings } from "./types.js";
+import type { RunContext, EvaluationResult } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -67,10 +67,10 @@ export function parseEvaluation(text: string, threshold: number): EvaluationResu
   };
 }
 
+/** Runs the evaluator agent. Reads plan from {runDir}/plan.md and findings from {runDir}/findings/ on disk. */
 export async function runEvaluator(
   ctx: RunContext,
-  round: number,
-  _findings?: DimensionFindings[]
+  round: number
 ): Promise<EvaluationResult> {
   const { config, runId, runDir } = ctx;
   const planPath = join(runDir, "plan.md");

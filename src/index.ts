@@ -5,9 +5,8 @@
 // ESM imports are hoisted and their top-level code runs before any
 // statement in this file, so the SDK can already have read the env var.
 
-import { mkdir, readFile, appendFile, writeFile } from "fs/promises";
+import { mkdir, readFile, appendFile, writeFile, copyFile } from "fs/promises";
 import { join, resolve } from "path";
-import { execSync } from "child_process";
 import { runPlanner } from "./planner.js";
 import { runGenerator } from "./generator.js";
 import { runEvaluator } from "./evaluator.js";
@@ -99,7 +98,8 @@ function parseArgs(argv: string[]): HarnessConfig {
   // final check once the filesystem has been consulted.
 
   // Infer mode from task if not explicitly set
-  if (!args.includes("--mode")) {
+  const explicitMode = args.includes("--mode");
+  if (!explicitMode) {
     if (/\b(review|audit|evaluate|assess|check)\b/i.test(task)) {
       mode = "review";
     } else if (/\b(build|create|add|implement)\b/i.test(task)) {
@@ -123,6 +123,7 @@ function parseArgs(argv: string[]): HarnessConfig {
     intentFile,
     emitYaml,
     maxTurns,
+    explicitMode,
   };
 }
 
@@ -133,7 +134,6 @@ function parseArgs(argv: string[]): HarnessConfig {
  * plain task run. Exits if there is neither a task nor an intent file.
  */
 async function resolveIntent(config: HarnessConfig): Promise<IntentDoc | undefined> {
-  const explicitMode = process.argv.includes("--mode");
   let intentPath = config.intentFile;
 
   if (!intentPath && !config.task) {
@@ -170,7 +170,7 @@ async function resolveIntent(config: HarnessConfig): Promise<IntentDoc | undefin
 
   config.intentFile = intentPath;
   config.task = intentCompilePreamble(intent);
-  if (!explicitMode) config.mode = "build"; // compiling an intent is a build by default
+  if (!config.explicitMode) config.mode = "build"; // compiling an intent is a build by default
   config.name ??= "hive"; // keep run ids readable (task is now a long preamble)
   console.log(
     `[intent] Driving run from ${intentPath} — ${intent.successCriteria.length} success criteria`
@@ -212,7 +212,9 @@ Examples:
 // ── Run management ──────────────────────────────────────────────────
 
 function generateRunId(config: HarnessConfig): string {
-  const timestamp = execSync("date +%Y%m%d-%H%M%S").toString().trim();
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   const slug =
     config.name ??
     config.focus ??
@@ -272,7 +274,7 @@ async function main() {
 │ Focus:  ${(config.focus ?? "all").padEnd(36)}│
 │ Sprint: ${(config.sprint?.toString() ?? "all").padEnd(36)}│
 │ Plan:   ${(config.planFile ? "reusing" : "generate").padEnd(36)}│
-│ CWD:    ${config.cwd.slice(-35).padEnd(36)}│
+│ CWD:    ${(config.cwd.length > 35 ? ("…" + config.cwd.slice(-34)).padEnd(36) : config.cwd.padEnd(36))}│
 └─────────────────────────────────────────────┘
 `);
 
@@ -300,8 +302,7 @@ async function main() {
     if (config.planFile) {
       // Reuse existing plan
       console.log("═══ Phase 1: Planner (reusing existing plan) ═══");
-      const { readFile: rf, copyFile } = await import("fs/promises");
-      const existingPlan = await rf(config.planFile, "utf-8");
+      const existingPlan = await readFile(config.planFile, "utf-8");
       const planPath = join(ctx.runDir, "plan.md");
       await copyFile(config.planFile, planPath);
       plan = { planPath, planContent: existingPlan };
@@ -317,6 +318,7 @@ async function main() {
     // ── Phase 2 & 3: Generate → Evaluate loop ───────────────────
     let round = 0;
     let evaluatorFeedback: string | undefined;
+    let lastEvaluation: { scores: Array<{ criterion: string; score: number }> } | undefined;
 
     while (round < config.maxEvalRounds) {
       round++;
@@ -329,7 +331,8 @@ async function main() {
       // ── Phase 3: Evaluate ──────────────────────────────────────
       console.log(`\n═══ Phase 3: Evaluator (round ${round}) ═══`);
       await updateIndex(ctx, `evaluating-r${round}`, `Evaluator round ${round}`);
-      const evaluation = await runEvaluator(ctx, round, genOutput.findings);
+      const evaluation = await runEvaluator(ctx, round);
+      lastEvaluation = evaluation;
 
       if (evaluation.passed) {
         await updateIndex(ctx, "complete", summarizeScores(evaluation));
@@ -338,14 +341,7 @@ async function main() {
         console.log("└─────────────────────────────────────────────┘");
         console.log(`Report: ${join(ctx.runDir, "report.md")}`);
 
-        // Print scores
-        if (evaluation.scores.length > 0) {
-          console.log("\nScorecard:");
-          for (const s of evaluation.scores) {
-            const bar = "█".repeat(Math.floor(s.score / 5));
-            console.log(`  ${s.criterion.padEnd(25)} ${s.score}/100 ${bar}`);
-          }
-        }
+        printScorecard(evaluation.scores);
         return;
       }
 
@@ -353,20 +349,17 @@ async function main() {
       if (config.mode === "review") {
         const status = evaluation.passed ? "complete" : "complete-review-failed";
         await updateIndex(ctx, status, summarizeScores(evaluation));
-        if (evaluation.scores.length > 0) {
-          console.log("\nScorecard:");
-          for (const s of evaluation.scores) {
-            const bar = "█".repeat(Math.floor(s.score / 5));
-            console.log(`  ${s.criterion.padEnd(25)} ${s.score}/100 ${bar}`);
-          }
-        }
+        printScorecard(evaluation.scores);
         console.log(`\nReview mode — evaluator output is the final report.`);
         console.log(`Report: ${join(ctx.runDir, "report.md")}`);
         return;
       }
 
       // Not passed — loop back to generator with feedback
-      evaluatorFeedback = evaluation.feedback;
+      const MAX_FEEDBACK_CHARS = 4000;
+      evaluatorFeedback = evaluation.feedback && evaluation.feedback.length > MAX_FEEDBACK_CHARS
+        ? evaluation.feedback.slice(0, MAX_FEEDBACK_CHARS) + "\n\n[…feedback truncated to 4000 chars]"
+        : evaluation.feedback;
       console.log(
         `\nRe-running generator with evaluator feedback (round ${round + 1})...\n`
       );
@@ -381,12 +374,22 @@ async function main() {
     console.log(
       `\nMax evaluation rounds (${config.maxEvalRounds}) reached. Check report for remaining issues.`
     );
+    if (lastEvaluation) printScorecard(lastEvaluation.scores);
     console.log(`Report: ${join(ctx.runDir, "report.md")}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await updateIndex(ctx, "failed", msg.slice(0, 80));
     console.error(`\nHARNESS FAILED: ${msg}`);
     process.exit(1);
+  }
+}
+
+function printScorecard(scores: Array<{ criterion: string; score: number }>) {
+  if (scores.length === 0) return;
+  console.log("\nScorecard:");
+  for (const s of scores) {
+    const bar = "█".repeat(Math.floor(s.score / 5));
+    console.log(`  ${s.criterion.padEnd(25)} ${s.score}/100 ${bar}`);
   }
 }
 
