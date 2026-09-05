@@ -3,6 +3,16 @@
   "version": "1.0.0",
   "description": "Declare what done means — hivekit builds until it's true. Reference compiler for HIVE.md (intent-as-source for AI agents)",
   "type": "module",
+  "exports": {
+    "./intent": {
+      "types": "./dist/intent.d.ts",
+      "import": "./dist/intent.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    }
+  },
   "bin": {
     "hivekit": "./bin/hivekit",
     "harness": "./bin/harness"
