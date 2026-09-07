@@ -15,7 +15,35 @@
 # subprocess needs.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve this script through any symlinks before deriving the package root.
+# `npm install` links node_modules/.bin/hivekit -> ../hivekit/bin/hivekit, so
+# `dirname "$0"` alone points at node_modules/.bin and dist/ is looked for in
+# the wrong place. Walk the symlink chain by hand: `readlink -f` is GNU-only
+# and is not available on macOS. The walk is capped at MAX_SYMLINK_HOPS so a
+# malformed or cyclic link chain fails fast instead of spinning forever. 20 is
+# far more hops than any real npm/pnpm layout needs (one or two), and below the
+# OS's own ELOOP cap.
+MAX_SYMLINK_HOPS=20
+
+resolve_script_dir() {
+  local target="$1" link_dir hops=0
+  while [ -L "$target" ]; do
+    hops=$((hops + 1))
+    if [ "$hops" -gt "$MAX_SYMLINK_HOPS" ]; then
+      echo "[hivekit] ERROR: more than $MAX_SYMLINK_HOPS symlinks while resolving launcher path '$1' (cyclic or malformed symlink?)" >&2
+      return 1
+    fi
+    link_dir="$(cd -P "$(dirname "$target")" && pwd)"
+    target="$(readlink "$target")"
+    case "$target" in
+      /*) ;;
+      *) target="$link_dir/$target" ;;
+    esac
+  done
+  (cd -P "$(dirname "$target")" && pwd)
+}
+
+SCRIPT_DIR="$(resolve_script_dir "${BASH_SOURCE[0]}")" || exit 1
 ENTRY="$SCRIPT_DIR/../dist/index.js"
 
 NESTED_SESSION_VARS=(

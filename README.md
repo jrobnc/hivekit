@@ -251,7 +251,20 @@ Each run writes a namespaced directory in the target project:
 ```bash
 npm run dev    # run via tsx (no build step)
 npm run build  # compile TypeScript
-npm test       # build + run the test suite (node --test)
+npm test       # build + run the test suite (node --test) — offline, no network
+```
+
+`npm test` is deliberately **offline and deterministic**: no registry access, no
+`npm install`. The launcher regression test builds the real
+`node_modules/.bin/hivekit -> ../hivekit/bin/hivekit` symlink shape on disk and
+runs the launchers for real, without installing anything.
+
+The end-to-end packaged check — `npm pack` plus a clean `npm install` of the
+tarball into a throwaway consumer — **needs network** (the install resolves the
+runtime dependency), so it lives in `test/network/` and runs separately:
+
+```bash
+npm run test:packaged   # requires network access
 ```
 
 ## License
