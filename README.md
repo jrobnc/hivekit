@@ -242,9 +242,125 @@ Each run writes a namespaced directory in the target project:
 .claude/harness/{run-id}/
 ├── plan.md       # Planner spec (compiled from HIVE.md, if given)
 ├── progress.md   # Generator progress
-├── report.md     # Evaluator report (+ Pinned Criteria Verification for HIVE.md runs)
+├── report.md     # Evaluator report, under hivekit's authoritative verdict banner
+├── result.json   # Machine-readable run result — the thing to script against
 └── findings/     # review mode only
 ```
+
+## The verdict contract
+
+hivekit's verdict comes from the evaluator state machine and nothing else.
+Success is never inferred from generators finishing, from files appearing on
+disk, or from prose an agent wrote into a report.
+
+**Exit codes**
+
+| Code | Outcome                | Meaning                                              |
+|------|------------------------|------------------------------------------------------|
+| 0    | `passed`               | Evaluator accepted the work                           |
+| 0    | `review_completed`     | Review delivered (its scores grade the *subject*)     |
+| 1    | `crashed`              | hivekit or an agent errored; run aborted              |
+| 2    | `failed`               | Evaluator judged the work and rejected it             |
+| 3    | `max_rounds_exhausted` | Rounds ran out with no evaluator PASS                 |
+| 4    | `errored`              | Evaluator produced no usable verdict (nothing verified) |
+
+**`result.json`**
+
+```json
+{
+  "outcome": "max_rounds_exhausted",
+  "result": "FAILED",
+  "ok": false,
+  "exitCode": 3,
+  "evaluator": {
+    "status": "failed",
+    "reason": "below_threshold",
+    "roundsRun": 3,
+    "maxRounds": 3
+  }
+}
+```
+
+`outcome` is the discriminator to switch on; `ok` is the one-bit answer. They can
+never disagree with `exitCode` — `buildRunResult` throws if they do.
+
+**report.md** always opens with a `HIVEKIT RESULT:` banner stating the
+authoritative verdict. On a non-passing run, any `Result: PASS` the evaluator
+agent wrote into its own prose is annotated as an overridden claim: the agent's
+reasoning is preserved for audit, but it cannot be mistaken for the verdict.
+
+> Note: `review_completed` exits 0 even when the review scores the reviewed code
+> badly — in review mode the scorecard grades the *subject under review*, not
+> hivekit's own work, so a damning review is a successful run.
+>
+> **This path requires an explicit `--mode review`.** `mode` otherwise defaults to
+> `review` and is inferred from task keywords (`check`, `audit`, `evaluate`...),
+> with the review pattern tested first — so without that gate,
+> `hivekit "implement payments and check the tests"` would take the exit-0 path
+> over an evaluator FAIL. A defaulted or inferred review takes the strict path.
+
+**What a pass requires**
+
+Three independent signals must all agree. Any one missing is a non-pass:
+
+1. `EVALUATION: PASS` as the **first non-blank line** of the evaluator's
+   response;
+2. a complete scorecard — every criterion the mode defines (`CRITERIA_POLICY` in
+   `src/evaluator.ts`), no duplicates disagreeing with one another, all values
+   in 0–100;
+3. every score at or above the threshold.
+
+Requiring (1) is the load-bearing part, and *how* it is required matters as much
+as that it is. A pass used to be **inferred** from the absence of a
+`EVALUATION: FAIL` marker, so any table of high numbers read as an acceptance —
+including one the evaluator merely **quoted**. The evaluator has `Read`/`Grep`
+over the target repo, where `.claude/harness/*/report.md` holds filled passing
+scorecards from earlier runs, so *"I could not verify this; the previous run
+scored: …"* was a pass.
+
+Adding the marker check was not enough on its own, and neither was making it
+fence-aware. The prompt **contains** the string `EVALUATION: PASS` — it has to,
+in order to ask for it — so a bare substring test is a credential the prompt
+gives away for free: an evaluator writing *"I cannot honestly produce the
+required `EVALUATION: PASS` line"* matched it. A column-0-and-not-in-a-fence rule
+then fell to a quoted block whose own content held a nested ``` marker, which
+inverted the fence-state toggle; the same toggle also silently blanked a
+*legitimate* assertion whenever an unbalanced fence appeared earlier in the
+response.
+
+So the rule is positional and involves no markdown parsing at all: **the verdict
+must be the response's first line.** A response that is explaining, hedging or
+declining cannot open with the verdict, and one that does open with it is
+asserting it under any reading. Position is the one property a quotation cannot
+forge — there is no fence state to invert and none to unbalance.
+
+Scores may appear anywhere, fenced or not. It is the *verdict line* that must be
+the evaluator's own.
+
+Note the deliberate asymmetry: the `EVALUATION: FAIL` check stays unanchored and
+matches anywhere. **Be liberal about what counts as a rejection, strict about
+what counts as an acceptance** — both biases point the same way. FAIL always
+wins over PASS.
+
+**What cannot buy a pass**
+
+- Prose. `Result: PASS` with no scorecard fails closed.
+- A partial or padded scorecard. `missing_criteria` if a required criterion is
+  absent; five copies of one criterion, or five fabricated ones, do not satisfy
+  a five-criterion mode.
+- Contradiction. Two rows scoring the same criterion differently is
+  `conflicting_scores`, not a coin flip.
+- Impossible scores. `150/100` is `malformed_scores`.
+- A forged verdict banner. Agent-written `HIVEKIT RESULT: PASSED` blocks are
+  stripped from the body before hivekit's own banner is prepended.
+- Never reaching the gate. The process exit code defaults to failure at startup
+  and is lowered to 0 only on a verified success, so a run that dies without
+  settling — a dropped SDK callback, a broken pipe — cannot report success.
+
+Fenced code blocks are *not* treated specially when parsing scores. An earlier
+attempt to ignore them cut both ways: it let a fenced low scorecard be erased by
+an unfenced summary table, and made a legitimately fenced passing response
+impossible. The explicit-assertion rule solves the quoting problem without it.
 
 ## Development
 

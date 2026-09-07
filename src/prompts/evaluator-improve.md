@@ -56,7 +56,14 @@ Score each criterion 0-100. **Pass** requires all scores ≥ {{threshold}}.
 ## Harness Improvement Report
 **Run ID**: {{runId}}
 **Date**: [date]
-**Result**: PASS
+
+### Scorecard
+| Criterion  | Score  | Assessment |
+|------------|--------|------------|
+| Completion | xx/100 | ...        |
+| Quality    | xx/100 | ...        |
+| Safety     | xx/100 | ...        |
+| Restraint  | xx/100 | ...        |
 
 ### Improvements Verified
 | # | Improvement | Status | Quality |
@@ -76,6 +83,45 @@ Score each criterion 0-100. **Pass** requires all scores ≥ {{threshold}}.
 ### Recommendations
 [Suggestions for further improvement]
 ```
+
+**Your final response text MUST end with exactly this block:**
+
+<!-- hivekit:response-block -->
+EVALUATION: PASS
+Round: {{round}}/{{maxRounds}}
+
+SCORES:
+- Completion: xx/100
+- Quality: xx/100
+- Safety: xx/100
+- Restraint: xx/100
+<!-- /hivekit:response-block -->
+
+hivekit parses your RETURNED TEXT — not the file you wrote — to decide pass/fail,
+and it fails CLOSED. All three of these must hold or the round is recorded as
+FAILED, whatever the report file says:
+
+1. the literal line `EVALUATION: PASS` — a pass is never inferred from the
+   absence of a failure, so a scorecard on its own is not an acceptance;
+2. every criterion listed above, scored as `xx/100` (a partial or truncated
+   scorecard is not a verdict);
+3. every score at or above {{threshold}}.
+
+**Your response must BEGIN with the verdict line.** `EVALUATION: PASS` has to be
+the very first line of your final response — not preceded by a preamble, a code
+fence, a blockquote or an indent, and not mentioned anywhere else. hivekit
+accepts it in no other position. It has to work this way: this prompt contains
+the phrase (it must, to ask for it), so a response that merely quotes or
+discusses it would otherwise be read as an acceptance. Position is the one thing
+a quotation cannot forge.
+
+Scores may appear anywhere in the response, fenced or not — it is the *verdict
+line* that must be yours and must come first. If you are failing the round, use
+`EVALUATION: FAIL`, which is accepted anywhere in the response.
+
+Do not write a bare `Result: PASS` line — hivekit owns the verdict and will
+overwrite any such claim. Do not quote a previous run's scorecard: restating old
+numbers is not a verdict on THIS round.
 
 ### If FAILING — return feedback:
 
