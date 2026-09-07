@@ -25,6 +25,7 @@
     "build": "tsc && rm -rf dist/prompts && cp -r src/prompts dist/prompts",
     "prepare": "npm run build",
     "test": "npm run build && node --test test/*.test.mjs",
+    "test:packaged": "npm run build && node --test test/network/*.test.mjs",
     "dev": "env -u ANTHROPIC_API_KEY tsx src/index.ts",
     "start": "env -u ANTHROPIC_API_KEY node dist/index.js"
   },

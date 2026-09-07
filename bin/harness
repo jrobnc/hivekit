@@ -5,10 +5,20 @@
 # Resolve this script through any symlinks before locating its sibling launcher.
 # `npm install` links node_modules/.bin/harness -> ../hivekit/bin/harness, so
 # `dirname "$0"` alone points at node_modules/.bin. Walk the symlink chain by
-# hand: `readlink -f` is GNU-only and is not available on macOS.
+# hand: `readlink -f` is GNU-only and is not available on macOS. The walk is
+# capped at MAX_SYMLINK_HOPS so a malformed or cyclic link chain fails fast
+# instead of spinning forever. 20 is far more hops than any real npm/pnpm
+# layout needs (one or two), and below the OS's own ELOOP cap.
+MAX_SYMLINK_HOPS=20
+
 resolve_script_dir() {
-  local target="$1" link_dir
+  local target="$1" link_dir hops=0
   while [ -L "$target" ]; do
+    hops=$((hops + 1))
+    if [ "$hops" -gt "$MAX_SYMLINK_HOPS" ]; then
+      echo "[harness] ERROR: more than $MAX_SYMLINK_HOPS symlinks while resolving launcher path '$1' (cyclic or malformed symlink?)" >&2
+      return 1
+    fi
     link_dir="$(cd -P "$(dirname "$target")" && pwd)"
     target="$(readlink "$target")"
     case "$target" in
@@ -19,4 +29,5 @@ resolve_script_dir() {
   (cd -P "$(dirname "$target")" && pwd)
 }
 
-exec "$(resolve_script_dir "${BASH_SOURCE[0]}")/hivekit" "$@"
+SCRIPT_DIR="$(resolve_script_dir "${BASH_SOURCE[0]}")" || exit 1
+exec "$SCRIPT_DIR/hivekit" "$@"
