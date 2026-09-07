@@ -90,3 +90,34 @@ For each: file, line, problem, fix suggestion
 - **Cut noise** — fewer high-quality findings beat many low-quality ones
 - **Be specific** — every finding must have a file path and actionable suggestion
 - **Acknowledge strengths** — but only genuine ones, not consolation prizes
+
+## Required final response
+
+Your final response text MUST end with this block — hivekit parses the returned
+text, not the report file, and fails CLOSED without it:
+
+<!-- hivekit:response-block -->
+EVALUATION: PASS
+SCORES:
+- Architecture: xx/100
+- Security: xx/100
+- Code Quality: xx/100
+<!-- /hivekit:response-block -->
+
+Use `EVALUATION: FAIL` instead when the codebase falls below {{threshold}} on any
+criterion. Name the criteria you actually scored — at least two, each distinct
+(identical names collapse to one and will be rejected as an incomplete
+scorecard). The verdict line is required in both cases: a scorecard on its own
+is never read as an acceptance.
+
+**Your response must BEGIN with the verdict line.** `EVALUATION: PASS` has to be
+the very first line of your final response — not preceded by a preamble, a code
+fence, a blockquote or an indent, and not mentioned anywhere else. hivekit
+accepts it in no other position. It has to work this way: this prompt contains
+the phrase (it must, to ask for it), so a response that merely quotes or
+discusses it would otherwise be read as an acceptance. Position is the one thing
+a quotation cannot forge.
+
+Scores may appear anywhere in the response, fenced or not — it is the *verdict
+line* that must be yours and must come first. If you are failing the round, use
+`EVALUATION: FAIL`, which is accepted anywhere in the response.

@@ -8,11 +8,47 @@
 import { mkdir, readFile, appendFile, writeFile, copyFile } from "fs/promises";
 import { join, resolve } from "path";
 import { fileURLToPath } from "url";
+import { randomBytes } from "crypto";
 import { runPlanner } from "./planner.js";
 import { runGenerator } from "./generator.js";
 import { runEvaluator } from "./evaluator.js";
 import { loadIntent, intentCompilePreamble, toIntentYaml } from "./intent.js";
-import type { HarnessConfig, Mode, Depth, RunContext, IntentDoc } from "./types.js";
+import {
+  buildRunResult,
+  composeReport,
+  decideOutcome,
+  exitCodeFor,
+  indexStatusFor,
+  isSuccessOutcome,
+} from "./outcome.js";
+import type {
+  HarnessConfig,
+  Mode,
+  Depth,
+  RunContext,
+  IntentDoc,
+  EvaluationResult,
+  RunOutcome,
+} from "./types.js";
+
+// ── Fail-closed process defaults ────────────────────────────────────
+
+// Node's default exit code is 0. Everything below — the orchestrator, the
+// evaluator gate, result.json — only ever runs if the process gets that far,
+// so the DEFAULT must be failure and success must be earned. Without this, any
+// path that ends the process without settling main() (a dropped SDK callback
+// draining the event loop, a dependency calling process.exit(), an exit hook)
+// reports success having verified nothing.
+process.exitCode = 1;
+
+// A run piped to `head` or a closed pager otherwise dies on an unhandled EPIPE
+// mid-write, before result.json or report.md are written. Swallow the write
+// error and let the run finish producing its artifacts.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EPIPE") throw err;
+  });
+}
 
 // ── Argument parsing ────────────────────────────────────────────────
 
@@ -28,6 +64,7 @@ function parseArgs(argv: string[]): HarnessConfig {
   let intentFile: string | undefined;
   let emitYaml = false;
   let maxTurns: number | undefined;
+  let explicitMode = false;
   const taskParts: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -47,6 +84,8 @@ function parseArgs(argv: string[]): HarnessConfig {
           process.exit(1);
         }
         mode = val as Mode;
+        explicitMode = true; // set here, not via args.includes("--mode"),
+        // which is also true for a value like `--focus --mode`.
         break;
       }
       case "--depth": {
@@ -111,7 +150,6 @@ function parseArgs(argv: string[]): HarnessConfig {
   // final check once the filesystem has been consulted.
 
   // Infer mode from task if not explicitly set
-  const explicitMode = args.includes("--mode");
   if (!explicitMode) {
     if (/\b(review|audit|evaluate|assess|check)\b/i.test(task)) {
       mode = "review";
@@ -236,7 +274,12 @@ export function generateRunId(config: HarnessConfig): string {
       .slice(0, 2)
       .join("");
   const slug = raw.toLowerCase().replace(/[^a-z0-9-]/g, "") || "run";
-  return `${config.mode}-${slug}-${timestamp}`;
+  // Random suffix: the timestamp is second-granular, so two runs launched in the
+  // same second with the same mode and --name shared a run directory — and with
+  // it report.md and result.json. That is a caller reading a verdict belonging
+  // to a different run, not merely a confusing filename.
+  const nonce = randomBytes(3).toString("hex");
+  return `${config.mode}-${slug}-${timestamp}-${nonce}`;
 }
 
 async function initRun(config: HarnessConfig): Promise<RunContext> {
@@ -261,6 +304,14 @@ async function initRun(config: HarnessConfig): Promise<RunContext> {
   return { runId, runDir, indexPath, config };
 }
 
+/**
+ * Append a row to the run index. NEVER throws.
+ *
+ * index.md is a convenience ledger, not a verdict. Guarding only the terminal
+ * call left four bare calls in the phase transitions, so a read-only index.md
+ * aborted the run at Phase 1 — turning a fully verified PASS into `crashed`
+ * before any work happened.
+ */
 async function updateIndex(
   ctx: RunContext,
   status: string,
@@ -268,12 +319,116 @@ async function updateIndex(
 ) {
   const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
   const line = `| ${ctx.runId} | ${ctx.config.mode} | ${status} | ${timestamp} | ${summary} |\n`;
-  await appendFile(ctx.indexPath, line, "utf-8");
+  try {
+    await appendFile(ctx.indexPath, line, "utf-8");
+  } catch (err) {
+    console.error(
+      `[hivekit] WARNING: could not append to ${ctx.indexPath}: ${err instanceof Error ? err.message : err}`
+    );
+  }
 }
 
 // ── Main orchestrator ───────────────────────────────────────────────
 
-async function main() {
+/**
+ * The single terminal path of a run.
+ *
+ * Every way a run can end — evaluator acceptance, evaluator rejection, rounds
+ * exhausted, evaluator error, hivekit crash — goes through here, and the exit
+ * code, result.json, report.md banner and index row are all derived from one
+ * RunOutcome. Nothing downstream is permitted to infer success from anything
+ * else (files produced, generators finishing, or an agent writing "PASS").
+ */
+async function finalizeRun(
+  ctx: RunContext,
+  args: {
+    outcome: RunOutcome;
+    evaluation?: EvaluationResult;
+    roundsRun: number;
+    error?: string;
+  }
+): Promise<RunOutcome> {
+  const { config, runDir, runId } = ctx;
+  const reportPath = join(runDir, "report.md");
+  const resultPath = join(runDir, "result.json");
+
+  const result = buildRunResult({
+    runId,
+    mode: config.mode,
+    outcome: args.outcome,
+    evaluatorStatus: args.evaluation?.status,
+    evaluatorReason: args.evaluation?.reason,
+    roundsRun: args.roundsRun,
+    maxRounds: config.maxEvalRounds,
+    threshold: config.evalThreshold,
+    scores: args.evaluation?.scores,
+    reportPath,
+    error: args.error,
+  });
+
+  // Machine-readable result first: if writing the human report fails, callers
+  // still get an accurate verdict rather than silence.
+  try {
+    await writeFile(resultPath, JSON.stringify(result, null, 2) + "\n", "utf-8");
+  } catch (err) {
+    console.error(
+      `[hivekit] WARNING: could not write ${resultPath}: ${err instanceof Error ? err.message : err}`
+    );
+  }
+
+  // Reconcile report.md against the authoritative verdict. The agent owns the
+  // prose; hivekit owns the verdict banner at the top and neutralises any
+  // conflicting "Result: PASS" claim in the body.
+  let agentReport = "";
+  try {
+    agentReport = await readFile(reportPath, "utf-8");
+  } catch {
+    agentReport = args.evaluation?.report ?? "";
+  }
+  if (!agentReport.trim()) {
+    agentReport = args.evaluation?.report?.trim()
+      ? args.evaluation.report
+      : "_No evaluator report was produced for this run._\n";
+  }
+  try {
+    await writeFile(reportPath, composeReport(agentReport, result), "utf-8");
+  } catch (err) {
+    console.error(
+      `[hivekit] WARNING: could not write ${reportPath}: ${err instanceof Error ? err.message : err}`
+    );
+  }
+
+  const summary = args.error
+    ? args.error.slice(0, 80)
+    : args.evaluation
+      ? summarizeScores(args.evaluation)
+      : `${args.outcome} (no evaluation)`;
+  await updateIndex(ctx, indexStatusFor(args.outcome), summary);
+
+  // Banner. A success banner is emitted ONLY for a success outcome.
+  console.log("\n┌─────────────────────────────────────────────┐");
+  if (isSuccessOutcome(args.outcome)) {
+    const label = args.outcome === "passed" ? "HARNESS COMPLETE" : "REVIEW COMPLETE";
+    console.log(`│${label.padStart(23 + Math.floor(label.length / 2)).padEnd(45)}│`);
+  } else {
+    console.log("│              HARNESS FAILED                 │");
+  }
+  console.log("└─────────────────────────────────────────────┘");
+  console.log(`Result:  ${result.result}`);
+  console.log(`Outcome: ${result.outcome}`);
+  console.log(
+    `Evaluator: ${result.evaluator.status} (${result.evaluator.reason}) — round ${args.roundsRun}/${config.maxEvalRounds}`
+  );
+  if (args.error) console.log(`Error:   ${args.error}`);
+  console.log(`Report:  ${reportPath}`);
+  console.log(`Result JSON: ${resultPath}`);
+  console.log(`Exit code: ${result.exitCode}`);
+  if (args.evaluation) printScorecard(args.evaluation.scores);
+
+  return args.outcome;
+}
+
+async function main(): Promise<RunOutcome> {
   const config = parseArgs(process.argv);
   const intent = await resolveIntent(config);
 
@@ -307,6 +462,13 @@ async function main() {
     }
   }
 
+  let round = 0;
+  let lastEvaluation: EvaluationResult | undefined;
+  // Did ANY round yield a real verdict? Separates "judged and rejected three
+  // times" (max_rounds_exhausted) from "never managed to verify anything"
+  // (errored) — two states a caller must be able to tell apart.
+  let anyJudged = false;
+
   try {
     // ── Phase 1: Planning ────────────────────────────────────────
     let plan: { planPath: string; planContent: string };
@@ -328,9 +490,7 @@ async function main() {
     }
 
     // ── Phase 2 & 3: Generate → Evaluate loop ───────────────────
-    let round = 0;
     let evaluatorFeedback: string | undefined;
-    let lastEvaluation: { scores: Array<{ criterion: string; score: number }> } | undefined;
 
     while (round < config.maxEvalRounds) {
       round++;
@@ -338,62 +498,72 @@ async function main() {
       // ── Phase 2: Generate ──────────────────────────────────────
       console.log(`\n═══ Phase 2: Generator (round ${round}) ═══`);
       await updateIndex(ctx, `generating-r${round}`, `Generator round ${round}`);
-      const genOutput = await runGenerator(ctx, evaluatorFeedback);
+      await runGenerator(ctx, evaluatorFeedback);
 
       // ── Phase 3: Evaluate ──────────────────────────────────────
       console.log(`\n═══ Phase 3: Evaluator (round ${round}) ═══`);
       await updateIndex(ctx, `evaluating-r${round}`, `Evaluator round ${round}`);
       const evaluation = await runEvaluator(ctx, round);
       lastEvaluation = evaluation;
+      if (evaluation.status !== "errored") anyJudged = true;
 
-      if (evaluation.passed) {
-        await updateIndex(ctx, "complete", summarizeScores(evaluation));
-        console.log("\n┌─────────────────────────────────────────────┐");
-        console.log("│              HARNESS COMPLETE                │");
-        console.log("└─────────────────────────────────────────────┘");
-        console.log(`Report: ${join(ctx.runDir, "report.md")}`);
-
-        printScorecard(evaluation.scores);
-        return;
-      }
-
-      // For review mode, don't re-run — reviews are one-shot
-      if (config.mode === "review") {
-        // evaluation.passed is always false here (true case returned early above)
-        const status = "complete-review-failed";
-        await updateIndex(ctx, status, summarizeScores(evaluation));
-        printScorecard(evaluation.scores);
-        console.log(`\nReview mode — evaluator output is the final report.`);
-        console.log(`Report: ${join(ctx.runDir, "report.md")}`);
-        return;
+      // Review mode is one-shot: its evaluator scores the code under review,
+      // not hivekit's own work, so there is nothing to iterate on.
+      if (evaluation.status === "passed" || config.mode === "review") {
+        return await finalizeRun(ctx, {
+          outcome: decideOutcome({
+            mode: config.mode,
+            explicitMode: config.explicitMode,
+            terminalStatus: evaluation.status,
+            anyJudged,
+            roundsRun: round,
+            maxRounds: config.maxEvalRounds,
+          }),
+          evaluation,
+          roundsRun: round,
+        });
       }
 
       // Not passed — loop back to generator with feedback
       const MAX_FEEDBACK_CHARS = 4000;
-      evaluatorFeedback = evaluation.feedback && evaluation.feedback.length > MAX_FEEDBACK_CHARS
-        ? evaluation.feedback.slice(0, MAX_FEEDBACK_CHARS) + "\n\n[…feedback truncated to 4000 chars]"
-        : evaluation.feedback;
-      console.log(
-        `\nRe-running generator with evaluator feedback (round ${round + 1})...\n`
-      );
+      evaluatorFeedback =
+        evaluation.feedback && evaluation.feedback.length > MAX_FEEDBACK_CHARS
+          ? evaluation.feedback.slice(0, MAX_FEEDBACK_CHARS) +
+            "\n\n[…feedback truncated to 4000 chars]"
+          : evaluation.feedback;
+      if (round < config.maxEvalRounds) {
+        console.log(
+          `\nRe-running generator with evaluator feedback (round ${round + 1})...\n`
+        );
+      }
     }
 
-    // Max rounds exhausted
-    await updateIndex(
-      ctx,
-      "complete-partial",
-      `Max rounds (${config.maxEvalRounds}) reached`
-    );
+    // Rounds exhausted with no evaluator acceptance. This is a FAILED run —
+    // it was previously a silent fall-through that exited 0.
     console.log(
-      `\nMax evaluation rounds (${config.maxEvalRounds}) reached. Check report for remaining issues.`
+      `\nMax evaluation rounds (${config.maxEvalRounds}) reached without an evaluator PASS.`
     );
-    if (lastEvaluation) printScorecard(lastEvaluation.scores);
-    console.log(`Report: ${join(ctx.runDir, "report.md")}`);
+    return await finalizeRun(ctx, {
+      outcome: decideOutcome({
+        mode: config.mode,
+        explicitMode: config.explicitMode,
+        terminalStatus: lastEvaluation?.status,
+        anyJudged,
+        roundsRun: round,
+        maxRounds: config.maxEvalRounds,
+      }),
+      evaluation: lastEvaluation,
+      roundsRun: round,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await updateIndex(ctx, "failed", msg.slice(0, 80));
     console.error(`\nHARNESS FAILED: ${msg}`);
-    process.exit(1);
+    return await finalizeRun(ctx, {
+      outcome: "crashed",
+      evaluation: lastEvaluation,
+      roundsRun: round,
+      error: msg,
+    });
   }
 }
 
@@ -409,7 +579,7 @@ function printScorecard(scores: Array<{ criterion: string; score: number }>) {
 function summarizeScores(
   evaluation: { scores: Array<{ criterion: string; score: number }> }
 ): string {
-  if (evaluation.scores.length === 0) return "Passed";
+  if (evaluation.scores.length === 0) return "no scorecard";
   const avg =
     evaluation.scores.reduce((sum, s) => sum + s.score, 0) /
     evaluation.scores.length;
@@ -419,5 +589,19 @@ function summarizeScores(
 // Only run main() when this file is the entry point (not when imported for tests)
 const __filename = fileURLToPath(import.meta.url);
 if (resolve(process.argv[1] ?? "") === __filename) {
-  main();
+  main().then(
+    (outcome) => {
+      // process.exitCode (not process.exit) so buffered stdout is flushed —
+      // a truncated report is how a caller ends up guessing at the verdict.
+      process.exitCode = exitCodeFor(outcome);
+    },
+    (err) => {
+      // Reaching here means the run failed before or during finalizeRun, so no
+      // result.json is guaranteed. Never exit 0 on this path.
+      console.error(
+        `\nHARNESS FAILED (unhandled): ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`
+      );
+      process.exitCode = exitCodeFor("crashed");
+    }
+  );
 }
