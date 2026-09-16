@@ -209,6 +209,42 @@ A top-of-file `delete process.env.ANTHROPIC_API_KEY` would be too late — ES mo
 | `--plan` | file path | none | Reuse an existing plan (skip the planner) |
 | `--max-turns` | integer | 100 / 60 / 40 | Max turns per agent |
 
+## Environment variables
+
+| Variable | Values | Default | Description |
+|----------|--------|---------|-------------|
+| `HARNESS_DEBUG` | any non-empty value | unset | Trace every message the Agent SDK streams back from a phase |
+| `HARNESS_ALLOW_API_KEY` | `1` | unset | Keep `ANTHROPIC_API_KEY` and bill the API instead of Claude Max (see [Billing](#billing--claude-max-by-default)) |
+
+### `HARNESS_DEBUG`
+
+Normally each agent phase prints only progress dots plus a one-line summary
+(`[agent] 41 messages, 96s, $0.87`). With `HARNESS_DEBUG` set, `runAgent()`
+(`src/sdk-utils.ts`) also emits one line **on stderr** per streamed SDK message,
+numbered in arrival order and tagged with its type (`assistant`, `result`, and
+the SDK's other message types):
+
+```bash
+HARNESS_DEBUG=1 ./bin/hivekit --intent HIVE.md
+```
+
+```
+  [agent] msg#1 type=system
+  [agent] msg#2 type=assistant
+  [agent] msg#3 type=user
+  ...
+  [agent] msg#41 type=result
+```
+
+Any non-empty value turns it on — `HARNESS_DEBUG=0` counts as *on*, so unset the
+variable to turn it off. It changes nothing about a run beyond the extra output.
+
+Reach for it when a phase looks stuck or wrong and the summary line isn't enough:
+a run that hangs with no new messages, a phase that ends with `WARNING: No
+messages received from SDK query` (auth or subprocess startup failure), or an
+agent that burns turns without producing a result. Because the trace goes to
+stderr, `2>debug.log` keeps it out of the normal run output.
+
 ## Under the hood — the implementation path
 
 The control loop is plain TypeScript (`src/`, compiled to `dist/`); the LLM only runs inside bounded agent phases. A run flows through these modules:
