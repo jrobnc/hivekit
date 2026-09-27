@@ -209,6 +209,19 @@ A top-of-file `delete process.env.ANTHROPIC_API_KEY` would be too late — ES mo
 | `--plan` | file path | none | Reuse an existing plan (skip the planner) |
 | `--max-turns` | integer | 100 / 60 / 40 | Max turns per agent |
 
+## Environment variables
+
+Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtime. All are optional; none has to be set for a normal run.
+
+| Variable | Values | Default | Description |
+|----------|--------|---------|-------------|
+| `ANTHROPIC_API_KEY` | API key | unset | Stripped from the environment by the launcher **before Node starts**, so a stray key can't silently switch the run to metered API billing. Reaches the Agent SDK only if `HARNESS_ALLOW_API_KEY` is set. |
+| `HARNESS_ALLOW_API_KEY` | any non-empty value | unset | Opts out of that strip for one run: `ANTHROPIC_API_KEY` is passed through (metered API billing) and the launcher prints a warning to stderr. |
+| `HARNESS_DEBUG` | any non-empty value | unset | Per-message agent tracing — logs `[agent] msg#N type=…` to stderr for every SDK message, in every phase. |
+| `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_EFFORT`, `ANTHROPIC_MODEL`, `AI_AGENT` | set by an enclosing Claude Code session | unset | Always stripped by the launcher — these are not hivekit settings. Inherited from a parent Claude Code session they leak into the `claude` subprocess the SDK spawns, which then crashes on startup trying to attach to a session that isn't its own. |
+
+`CLAUDE_CODE_OAUTH_TOKEN` is deliberately left untouched — it is the Claude Max credential that subprocess authenticates with.
+
 ## Under the hood — the implementation path
 
 The control loop is plain TypeScript (`src/`, compiled to `dist/`); the LLM only runs inside bounded agent phases. A run flows through these modules:
