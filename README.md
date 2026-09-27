@@ -161,6 +161,11 @@ A quick test — if you answer "no" to all three, do it by hand:
 > change code you then have to verify, so they need a stronger reason. When in doubt: review is the
 > safe reach; build/improve need a real one.
 
+## Requirements
+
+- **Node.js** — `package.json` declares no `engines` field, so no engine constraint is declared; the repo has no `.nvmrc`, `.node-version`, or CI workflow pinning a Node major.
+- **Claude Code** — `bin/hivekit` does not look for a `claude` binary. It strips `ANTHROPIC_API_KEY` (unless `HARNESS_ALLOW_API_KEY` is set) and nested Claude Code session variables, keeps `CLAUDE_CODE_OAUTH_TOKEN`, then runs `node dist/index.js`. The runtime calls `query()` from `@anthropic-ai/claude-agent-sdk` (`src/sdk-utils.ts`), which spawns the `claude` subprocess; that dependency is declared in `package.json` as `"@anthropic-ai/claude-agent-sdk": "^0.2.90"`.
+
 ## Install
 
 ```bash
