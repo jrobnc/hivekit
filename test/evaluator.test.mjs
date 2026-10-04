@@ -64,7 +64,7 @@ test("SECURITY: scores above threshold with NO 'EVALUATION: PASS' do not pass", 
 });
 
 test("SECURITY: an evaluator quoting a prior run's passing table does not pass", () => {
-  // The evaluator has Read/Grep over the repo, where .claude/harness/*/report.md
+  // The evaluator has Read/Grep over the repo, where .hivekit/runs/*/report.md (formerly .claude/harness/)
   // holds filled passing scorecards from earlier runs.
   const r = parse(
     [

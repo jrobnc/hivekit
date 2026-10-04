@@ -5,6 +5,7 @@
 // ESM imports are hoisted and their top-level code runs before any
 // statement in this file, so the SDK can already have read the env var.
 
+import { excludeFromGit, runsRoot } from "./paths.js";
 import { mkdir, readFile, appendFile, writeFile, copyFile } from "fs/promises";
 import { join, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -256,7 +257,7 @@ Examples:
   hivekit --cwd ~/dev/my-app   # auto-discovers HIVE.md / intent.md
 
   # Run a specific sprint from an existing plan:
-  hivekit "build sprint 3" --mode build --sprint 3 --plan .claude/harness/prev-run/plan.md
+  hivekit "build sprint 3" --mode build --sprint 3 --plan .hivekit/runs/prev-run/plan.md
 `);
 }
 
@@ -284,16 +285,18 @@ export function generateRunId(config: HarnessConfig): string {
 
 async function initRun(config: HarnessConfig): Promise<RunContext> {
   const runId = generateRunId(config);
-  const runDir = join(config.cwd, ".claude", "harness", runId);
-  const indexPath = join(config.cwd, ".claude", "harness", "index.md");
+  const root = runsRoot(config.cwd);
+  const runDir = join(root, runId);
+  const indexPath = join(root, "index.md");
 
   await mkdir(runDir, { recursive: true });
+  await excludeFromGit(config.cwd);
 
   // Ensure index file exists with header
   try {
     await readFile(indexPath, "utf-8");
   } catch {
-    await mkdir(join(config.cwd, ".claude", "harness"), { recursive: true });
+    await mkdir(root, { recursive: true });
     await writeFile(
       indexPath,
       "| Run ID | Mode | Status | Timestamp | Summary |\n|--------|------|--------|-----------|----------|\n",

@@ -1,7 +1,8 @@
-import { readFile, mkdir, writeFile } from "fs/promises";
+import { readFile, mkdir, writeFile, rm } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples } from "./sdk-utils.js";
+import { treeFingerprint } from "./paths.js";
 import type {
   RunContext,
   GeneratorOutput,
@@ -187,6 +188,9 @@ async function runImproveGenerators(
     assignments[i % agentCount].push(section.trim());
   });
 
+  // Each round starts with no notes: a note left by an earlier round must not count as this round's progress.
+  await Promise.all(Array.from({ length: agentCount }, (_, i) => rm(join(runDir, `progress-${i + 1}.md`), { force: true })));
+  const before = await treeFingerprint(config.cwd);
   const tasks = assignments.map(async (assigned, i) => {
     const progressPath = join(runDir, `progress-${i + 1}.md`);
     const assignment = `You are improvement agent ${i + 1} of ${agentCount}. Your assigned improvements:\n\n${assigned.join("\n\n---\n\n")}`;
@@ -230,18 +234,32 @@ async function runImproveGenerators(
       merged.push(`# Agent ${i + 1}\n\n_No progress recorded._`);
     }
   }
-  checkImproveFailures(merged, agentCount);
+  const after = await treeFingerprint(config.cwd);
+  const treeChanged = before !== undefined && after !== undefined && before !== after;
+  const warning = checkImproveFailures(merged, agentCount, treeChanged);
+  // The warning goes into progress.md too, so the evaluator and the report see it, not only the console.
+  if (warning) merged.unshift(`> **HiveKit warning:** ${warning}`);
   await writeFile(join(runDir, "progress.md"), merged.join("\n\n---\n\n"), "utf-8");
 
   console.log("[generator] All improvement agents complete");
 }
 
-/** Throw if a majority of improve agents produced no meaningful progress. */
-export function checkImproveFailures(merged: string[], agentCount: number): void {
+/**
+ * Throw if a majority of improve agents produced no meaningful progress.
+ *
+ * A missing progress file is only evidence of "no progress" when the code did not change either: agents that edit
+ * the target but cannot (or forget to) write their note must not abort finished work. When the working tree changed,
+ * the run continues to the evaluator, which judges the actual diff.
+ */
+export function checkImproveFailures(merged: string[], agentCount: number, treeChanged = false): string | undefined {
   const failedCount = merged.filter(m => m.includes("_No progress recorded._")).length;
-  if (failedCount > agentCount / 2) {
-    throw new Error(`Majority of improve agents failed (${failedCount}/${agentCount} produced no progress) — aborting`);
+  if (failedCount <= agentCount / 2) return undefined;
+  if (treeChanged) {
+    const warning = `${failedCount}/${agentCount} improve agent(s) wrote no progress note, but the working tree changed — continuing to evaluation; judge the diff, not the notes.`;
+    console.warn(`[generator] ${warning}`);
+    return warning;
   }
+  throw new Error(`Majority of improve agents failed (${failedCount}/${agentCount} produced no progress and the working tree is unchanged) — aborting`);
 }
 
 // ── Entry point ─────────────────────────────────────────────────────
