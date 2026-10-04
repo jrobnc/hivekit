@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { excludeFromGit, runsRoot, treeFingerprint } from "../dist/paths.js";
@@ -68,4 +68,39 @@ test("treeFingerprint works in a repository with no commits", async () => {
   assert.ok(before !== undefined, "fingerprinted without HEAD");
   writeFileSync(join(dir, "a.txt"), "x\n");
   assert.notEqual(await treeFingerprint(dir), before);
+});
+
+test("subdirectory target: editing a file outside the subdirectory changes the fingerprint", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hivekit-subdir-"));
+  const git = (...args) => execFileSync("git", args, { cwd: dir, stdio: "pipe" }).toString();
+  git("init", "-q");
+  git("config", "user.email", "t@example.com"); git("config", "user.name", "t");
+  writeFileSync(join(dir, "a.txt"), "root file\n");
+  mkdirSync(join(dir, "sub"));
+  writeFileSync(join(dir, "sub", "b.txt"), "sub file\n");
+  git("add", "."); git("commit", "-qm", "init");
+
+  const sub = join(dir, "sub");
+  await excludeFromGit(sub);
+  const before = await treeFingerprint(sub);
+  writeFileSync(join(dir, "a.txt"), "edited root file\n");
+  assert.notEqual(await treeFingerprint(sub), before, "edit outside subdirectory must change the fingerprint");
+});
+
+test("subdirectory target: .hivekit/ artifacts under the subdirectory do not change the fingerprint", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hivekit-subdir-"));
+  const git = (...args) => execFileSync("git", args, { cwd: dir, stdio: "pipe" }).toString();
+  git("init", "-q");
+  git("config", "user.email", "t@example.com"); git("config", "user.name", "t");
+  writeFileSync(join(dir, "a.txt"), "root file\n");
+  mkdirSync(join(dir, "sub"));
+  writeFileSync(join(dir, "sub", "b.txt"), "sub file\n");
+  git("add", "."); git("commit", "-qm", "init");
+
+  const sub = join(dir, "sub");
+  await excludeFromGit(sub);
+  const before = await treeFingerprint(sub);
+  mkdirSync(join(sub, ".hivekit", "runs", "r1"), { recursive: true });
+  writeFileSync(join(sub, ".hivekit", "runs", "r1", "progress.md"), "notes");
+  assert.equal(await treeFingerprint(sub), before, "run artifacts under subdirectory must not change the fingerprint");
 });

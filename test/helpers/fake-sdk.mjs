@@ -41,6 +41,11 @@ export async function* query({ prompt }) {
     const target = found.find((p) => p.startsWith("/"));
     if (target) writeFileSync(target, entry.content ?? "", "utf-8");
   }
+  if (entry.writeFiles) {
+    for (const { path, content } of entry.writeFiles) {
+      writeFileSync(path, content ?? "", "utf-8");
+    }
+  }
 
   yield { type: "assistant", message: { content: [] } };
   yield {
