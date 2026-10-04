@@ -13,7 +13,7 @@ artifacts are gitignored — you regenerate them by running it).
 
 The harness auto-discovers `HIVE.md`, compiles it into a plan, builds `src/slugify.js` + a test,
 and the Evaluator grades against the **pinned Success Criteria** — running `npm test` for the
-`[auto]` ones and judging the `[judge]` one. A passing run writes `.claude/harness/<run>/report.md`
+`[auto]` ones and judging the `[judge]` one. A passing run writes `.hivekit/runs/<run>/report.md`
 with a Pinned Criteria Verification table.
 
 ## Verify independently

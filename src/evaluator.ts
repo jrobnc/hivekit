@@ -72,7 +72,7 @@ function normalizeCriterion(name: string): string {
  * Requiring (1) is what stops a pass being INFERRED from the mere absence of a
  * FAIL marker. That inference was the hole behind the quoted-scorecard attack:
  * the evaluator has Read/Grep over the target repo, where old
- * `.claude/harness/*​/report.md` files hold filled passing tables, so an
+ * `.hivekit/runs/*​/report.md` (formerly `.claude/harness/`) files hold filled passing tables, so an
  * evaluator that says "I could not verify this; the previous run scored:" and
  * quotes one used to be read as asserting those scores itself. Quoting a table
  * asserts nothing; only `EVALUATION: PASS` does.

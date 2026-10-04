@@ -44,3 +44,14 @@ test("checkImproveFailures — all failures throws", () => {
     /2\/2 produced no progress/
   );
 });
+
+test("checkImproveFailures — majority without notes but a changed working tree does NOT throw", () => {
+  // The 2026-10-04 false aborts: agents edited the target but their progress notes were refused under .claude/.
+  const merged = ["# Agent 1\n\n_No progress recorded._", "# Agent 2\n\n_No progress recorded._", "# Agent 3\n\nDid X"];
+  assert.doesNotThrow(() => checkImproveFailures(merged, 3, true));
+});
+
+test("checkImproveFailures — majority without notes and an unchanged tree still throws", () => {
+  const merged = ["# Agent 1\n\n_No progress recorded._", "# Agent 2\n\n_No progress recorded._", "# Agent 3\n\nDid X"];
+  assert.throws(() => checkImproveFailures(merged, 3, false), /working tree is unchanged/);
+});

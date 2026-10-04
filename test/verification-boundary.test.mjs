@@ -135,7 +135,7 @@ function runCli(ws, script, extraArgs = [], opts = {}) {
 }
 
 function runArtifacts(ws) {
-  const base = join(ws.repo, ".claude", "harness");
+  const base = join(ws.repo, ".hivekit", "runs");
   const runs = readdirSync(base, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
@@ -400,8 +400,8 @@ test("a read-only index.md does not downgrade a verified PASS to a crash", () =>
   // updateIndex left four bare calls in the phase transitions, so a read-only
   // index aborted the run at Phase 1 — turning a real PASS into `crashed`.
   const ws = makeWorkspace();
-  mkdirSync(join(ws.repo, ".claude", "harness"), { recursive: true });
-  const indexPath = join(ws.repo, ".claude", "harness", "index.md");
+  mkdirSync(join(ws.repo, ".hivekit", "runs"), { recursive: true });
+  const indexPath = join(ws.repo, ".hivekit", "runs", "index.md");
   writeFileSync(indexPath, "| Run ID | Mode | Status | Timestamp | Summary |\n|---|---|---|---|---|\n", "utf-8");
   chmodSync(indexPath, 0o444);
 
@@ -414,7 +414,7 @@ test("a read-only index.md does not downgrade a verified PASS to a crash", () =>
   chmodSync(indexPath, 0o644);
 
   assert.equal(run.code, 0, "a cosmetic index append failure must not fail the run");
-  const base = join(ws.repo, ".claude", "harness");
+  const base = join(ws.repo, ".hivekit", "runs");
   const runDir = readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory())[0].name;
   const result = JSON.parse(readFileSync(join(base, runDir, "result.json"), "utf-8"));
   assert.equal(result.outcome, "passed");
@@ -432,7 +432,7 @@ test("run ids are unique within the same second", () => {
       argv: ["do the thing", "--mode", "improve", "--name", "samename"],
     });
   }
-  const base = join(ws.repo, ".claude", "harness");
+  const base = join(ws.repo, ".hivekit", "runs");
   const dirs = readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
   assert.equal(dirs.length, 2, `two runs must not share a run directory: ${dirs.join(", ")}`);
 });

@@ -114,7 +114,13 @@ A `HIVE.md` isn't "executed" directly. hivekit **compiles it to a markdown plan,
                        up to --max-turns rounds. The loop, not the model, decides pass/fail.
 ```
 
-All of these land in `.claude/harness/{run-id}/` in the target project (see [Artifacts](#artifacts)), so a run is fully auditable after the fact — you can read exactly what it planned, built, and how it graded itself.
+All of these land in `.hivekit/runs/{run-id}/` in the target project (see [Artifacts](#artifacts)), so a run is fully auditable after the fact — you can read exactly what it planned, built, and how it graded itself.
+
+> **Run artifacts moved (2026-10-04):** from `.claude/harness/` to `.hivekit/runs/`. Claude Code refuses agent writes
+> under `.claude/`, so improve agents could not write their progress notes there (HiveKit then aborted finished runs
+> as "no progress") and evaluators opened with the refusal instead of the verdict. Old runs under `.claude/harness/`
+> are left where they are. An improve round now also counts a changed working tree as progress, so a missing note
+> alone never aborts a run that edited the code.
 
 ## Modes
 
@@ -249,10 +255,11 @@ bin/hivekit              strips ANTHROPIC_API_KEY, then runs dist/index.js   (Cl
 
 ## Artifacts
 
-Each run writes a namespaced directory in the target project:
+Each run writes a namespaced directory in the target project, kept out of its commits through the repository's
+local `.git/info/exclude` (HiveKit adds `.hivekit/` there; tracked files are never touched):
 
 ```
-.claude/harness/{run-id}/
+.hivekit/runs/{run-id}/
 ├── plan.md       # Planner spec (compiled from HIVE.md, if given)
 ├── progress.md   # Generator progress
 ├── report.md     # Evaluator report, under hivekit's authoritative verdict banner
@@ -327,7 +334,7 @@ Requiring (1) is the load-bearing part, and *how* it is required matters as much
 as that it is. A pass used to be **inferred** from the absence of a
 `EVALUATION: FAIL` marker, so any table of high numbers read as an acceptance —
 including one the evaluator merely **quoted**. The evaluator has `Read`/`Grep`
-over the target repo, where `.claude/harness/*/report.md` holds filled passing
+over the target repo, where `.hivekit/runs/*/report.md` holds filled passing
 scorecards from earlier runs, so *"I could not verify this; the previous run
 scored: …"* was a pass.
 
