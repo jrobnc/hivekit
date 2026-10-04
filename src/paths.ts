@@ -1,9 +1,12 @@
 import { execFile } from "child_process";
-import { appendFile, mkdir, readFile } from "fs/promises";
-import { dirname, isAbsolute, join } from "path";
+import { appendFile, mkdir, readFile, realpath } from "fs/promises";
+import { dirname, isAbsolute, join, relative } from "path";
 import { promisify } from "util";
 
-const run = promisify(execFile);
+const exec = promisify(execFile);
+/** Every git call ignores a user's GIT_LITERAL_PATHSPECS=1, which would switch off the `:(exclude)` magic below. */
+const run = (file: string, args: string[], opts: { cwd: string; maxBuffer?: number }) =>
+  exec(file, args, { ...opts, env: { ...process.env, GIT_LITERAL_PATHSPECS: "0" } });
 
 /**
  * Where a run's artifacts live in the target project: `<cwd>/.hivekit/runs/`.
@@ -45,8 +48,9 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
  * fingerprints mean the agents changed nothing. It covers: HEAD; `git status`; the binary-safe diff against HEAD (or
  * the empty tree before the first commit), ignoring the user's external diff and textconv drivers; and the CONTENT of
  * untracked files (status alone shows `?? file` both before and after an edit to an already-untracked file). Run
- * artifacts under `.hivekit/` are excluded. Scope is the target directory: with a subdirectory as the target, edits
- * outside it are not seen, and the run falls back to the plain "no progress" abort — never to a false pass.
+ * artifacts under the target's `.hivekit/` are excluded. Scope is the whole repository, so a subdirectory target does
+ * not miss edits elsewhere in the same repository. Still not seen (the run then falls back to the plain abort, never a
+ * false pass): a superproject from inside a submodule, and output larger than the buffers below.
  */
 export async function treeFingerprint(cwd: string): Promise<string | undefined> {
   try {
@@ -55,19 +59,23 @@ export async function treeFingerprint(cwd: string): Promise<string | undefined> 
     return undefined;
   }
   try {
-    const exclude = ":(exclude).hivekit";
+    const toplevel = (await run("git", ["rev-parse", "--show-toplevel"], { cwd })).stdout.trim();
+    const realCwd = await realpath(cwd);
+    const rel = relative(toplevel, realCwd) || ".";
+    // `literal`: a directory name with glob characters (a*b, [x]) must exclude only itself.
+    const exclude = rel === "." ? ":(exclude,literal).hivekit" : `:(exclude,literal)${rel}/.hivekit`;
     let head = "";
-    try { head = (await run("git", ["rev-parse", "HEAD"], { cwd })).stdout.trim(); } catch { /* no commits yet */ }
+    try { head = (await run("git", ["rev-parse", "HEAD"], { cwd: toplevel })).stdout.trim(); } catch { /* no commits yet */ }
     const base = head || EMPTY_TREE;
     const [status, diff, untracked] = await Promise.all([
-      run("git", ["status", "--porcelain", "--untracked-files=all", "--", ".", exclude], { cwd, maxBuffer: 64 * 1024 * 1024 }),
-      run("git", ["diff", "--binary", "--no-ext-diff", "--no-textconv", base, "--", ".", exclude], { cwd, maxBuffer: 256 * 1024 * 1024 }),
-      run("git", ["ls-files", "-o", "--exclude-standard", "-z", "--", ".", exclude], { cwd, maxBuffer: 64 * 1024 * 1024 }),
+      run("git", ["status", "--porcelain", "--untracked-files=all", "--", ".", exclude], { cwd: toplevel, maxBuffer: 64 * 1024 * 1024 }),
+      run("git", ["diff", "--binary", "--no-ext-diff", "--no-textconv", base, "--", ".", exclude], { cwd: toplevel, maxBuffer: 256 * 1024 * 1024 }),
+      run("git", ["ls-files", "-o", "--exclude-standard", "-z", "--", ".", exclude], { cwd: toplevel, maxBuffer: 64 * 1024 * 1024 }),
     ]);
     const files = untracked.stdout.split("\0").filter(Boolean);
     const hashes: string[] = [];
     for (let i = 0; i < files.length; i += 500) {
-      hashes.push((await run("git", ["hash-object", "--", ...files.slice(i, i + 500)], { cwd, maxBuffer: 64 * 1024 * 1024 })).stdout);
+      hashes.push((await run("git", ["hash-object", "--", ...files.slice(i, i + 500)], { cwd: toplevel, maxBuffer: 64 * 1024 * 1024 })).stdout);
     }
     return `${head || "(no commits)"}\n${status.stdout}\n${diff.stdout}\n${hashes.join("")}`;
   } catch {

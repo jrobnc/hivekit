@@ -496,6 +496,76 @@ test("SECURITY: claims wrapped in code markup do not survive in a failed run's r
   assert.doesNotMatch(art.report, /HIVEKIT RESULT: PASSED/);
 });
 
+// ── Improve-round progress check wiring ───────────────────────────
+
+/**
+ * Helper: initialise the workspace repo as a git repository with a committed
+ * file. The existing makeWorkspace creates a plain directory; these tests need
+ * a real repo so treeFingerprint has something to diff against.
+ */
+function initWorkspaceRepo(repoDir) {
+  const git = (...args) => execFileSync("git", args, { cwd: repoDir, stdio: "pipe" });
+  git("init", "-q");
+  git("config", "user.email", "t@example.com");
+  git("config", "user.name", "t");
+  writeFileSync(join(repoDir, "a.txt"), "original\n");
+  git("add", ".");
+  git("commit", "-qm", "init");
+}
+
+test("improve: agent edits code but writes no progress note → evaluator runs, progress.md has warning", () => {
+  const ws = makeWorkspace();
+  initWorkspaceRepo(ws.repo);
+
+  const passing = `EVALUATION: PASS
+| Criterion | Score | Assessment |
+|-----------|-------|------------|
+| Completion | 95/100 | done |
+| Quality | 88/100 | clean |
+| Safety | 100/100 | no regressions |
+| Restraint | 90/100 | in scope |`;
+
+  // The agent edits a.txt (via writeFiles) but does NOT write a progress-N.md.
+  // Then the evaluator returns a passing verdict.
+  const script = {
+    calls: [
+      {
+        writeFiles: [{ path: join(ws.repo, "a.txt"), content: "edited\n" }],
+        result: "generator done",
+      },
+      {
+        writePathPattern: "report\\.md",
+        content: "## Report\nWork done.",
+        result: passing,
+      },
+    ],
+  };
+
+  const run = runCli(ws, script);
+  assert.equal(run.code, 0, `expected exit 0 but got ${run.code}; stderr: ${run.stderr}`);
+
+  const art = runArtifacts(ws);
+  assert.equal(art.result.ok, true);
+  assert.equal(art.result.outcome, "passed");
+
+  // The merged progress.md must carry the HiveKit warning about the missing note.
+  const progress = readFileSync(join(art.runDir, "progress.md"), "utf-8");
+  assert.match(progress, /HiveKit warning/, "progress.md must contain the tree-changed warning");
+});
+
+test("improve: agent neither edits files nor writes progress → run aborts as unchanged", () => {
+  const ws = makeWorkspace();
+  initWorkspaceRepo(ws.repo);
+
+  // The agent does nothing at all — no file writes, no progress note.
+  const script = { calls: [{ result: "generator done" }] };
+  const run = runCli(ws, script);
+
+  assert.notEqual(run.code, 0, "must fail when nothing changed");
+  const combined = run.stdout + run.stderr;
+  assert.match(combined, /working tree is unchanged/, "error must mention unchanged tree");
+});
+
 test("genuine quoted code in a failed run's report is preserved verbatim", () => {
   // Asserted on its own fixture: the claim oracle is deliberately code-blind
   // (that strictness is what lets it catch a claim hidden in a fence), so it
