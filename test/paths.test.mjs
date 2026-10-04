@@ -104,3 +104,31 @@ test("subdirectory target: .hivekit/ artifacts under the subdirectory do not cha
   writeFileSync(join(sub, ".hivekit", "runs", "r1", "progress.md"), "notes");
   assert.equal(await treeFingerprint(sub), before, "run artifacts under subdirectory must not change the fingerprint");
 });
+
+test("subdirectory target: the exclude pathspec itself (no info/exclude) keeps sub/.hivekit artifacts out", async () => {
+  const { dir, git } = repo();
+  execFileSync("mkdir", ["-p", join(dir, "sub")]);
+  writeFileSync(join(dir, "sub", "b.txt"), "b\n");
+  git("add", "."); git("commit", "-qm", "sub");
+  const sub = join(dir, "sub");
+  // Deliberately NOT calling excludeFromGit: the pathspec must do the work on its own.
+  const before = await treeFingerprint(sub);
+  assert.notEqual(before, undefined, "fingerprinted (not vacuously equal)");
+  execFileSync("mkdir", ["-p", join(sub, ".hivekit", "runs", "r1")]);
+  writeFileSync(join(sub, ".hivekit", "runs", "r1", "progress-1.md"), "notes");
+  assert.equal(await treeFingerprint(sub), before, "the target's own run artifacts are not progress");
+  writeFileSync(join(dir, "a.txt"), "changed\n");
+  assert.notEqual(await treeFingerprint(sub), before, "an edit elsewhere in the repo is progress");
+});
+
+test("a glob-looking directory name excludes only itself (literal pathspec)", async () => {
+  const { dir, git } = repo();
+  for (const d of ["a*b", "aXb"]) { execFileSync("mkdir", ["-p", join(dir, d)]); writeFileSync(join(dir, d, "f.txt"), "f\n"); }
+  git("add", "."); git("commit", "-qm", "dirs");
+  const target = join(dir, "a*b");
+  const before = await treeFingerprint(target);
+  assert.notEqual(before, undefined);
+  execFileSync("mkdir", ["-p", join(dir, "aXb", ".hivekit")]);
+  writeFileSync(join(dir, "aXb", ".hivekit", "other.md"), "another target's file");
+  assert.notEqual(await treeFingerprint(target), before, "a sibling aXb/.hivekit is not excluded by a*b");
+});

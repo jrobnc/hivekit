@@ -3,7 +3,10 @@ import { appendFile, mkdir, readFile, realpath } from "fs/promises";
 import { dirname, isAbsolute, join, relative } from "path";
 import { promisify } from "util";
 
-const run = promisify(execFile);
+const exec = promisify(execFile);
+/** Every git call ignores a user's GIT_LITERAL_PATHSPECS=1, which would switch off the `:(exclude)` magic below. */
+const run = (file: string, args: string[], opts: { cwd: string; maxBuffer?: number }) =>
+  exec(file, args, { ...opts, env: { ...process.env, GIT_LITERAL_PATHSPECS: "0" } });
 
 /**
  * Where a run's artifacts live in the target project: `<cwd>/.hivekit/runs/`.
@@ -45,8 +48,9 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
  * fingerprints mean the agents changed nothing. It covers: HEAD; `git status`; the binary-safe diff against HEAD (or
  * the empty tree before the first commit), ignoring the user's external diff and textconv drivers; and the CONTENT of
  * untracked files (status alone shows `?? file` both before and after an edit to an already-untracked file). Run
- * artifacts under `.hivekit/` are excluded. Scope is the entire repository: even when cwd is a subdirectory, edits
- * anywhere in the repo are visible, so subdirectory targets never produce false "no progress" aborts.
+ * artifacts under the target's `.hivekit/` are excluded. Scope is the whole repository, so a subdirectory target does
+ * not miss edits elsewhere in the same repository. Still not seen (the run then falls back to the plain abort, never a
+ * false pass): a superproject from inside a submodule, and output larger than the buffers below.
  */
 export async function treeFingerprint(cwd: string): Promise<string | undefined> {
   try {
@@ -58,7 +62,8 @@ export async function treeFingerprint(cwd: string): Promise<string | undefined> 
     const toplevel = (await run("git", ["rev-parse", "--show-toplevel"], { cwd })).stdout.trim();
     const realCwd = await realpath(cwd);
     const rel = relative(toplevel, realCwd) || ".";
-    const exclude = rel === "." ? ":(exclude).hivekit" : `:(exclude)${rel}/.hivekit`;
+    // `literal`: a directory name with glob characters (a*b, [x]) must exclude only itself.
+    const exclude = rel === "." ? ":(exclude,literal).hivekit" : `:(exclude,literal)${rel}/.hivekit`;
     let head = "";
     try { head = (await run("git", ["rev-parse", "HEAD"], { cwd: toplevel })).stdout.trim(); } catch { /* no commits yet */ }
     const base = head || EMPTY_TREE;

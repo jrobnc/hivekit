@@ -4,7 +4,7 @@
 // test/verification-boundary.test.mjs.
 //
 // Behaviour is driven by a JSON script whose path is in HIVEKIT_TEST_SDK_SCRIPT:
-//   { "calls": [ { when?, writePathPattern?, content?, result, isError? }, ... ] }
+//   { "calls": [ { when?, writePathPattern?, content?, writeFiles?: [{ path, content }], result, isError? }, ... ] }
 // Entries with a `when` regex are selected by matching it against the prompt —
 // use this when call ORDER is not fixed (review mode fans out a variable number
 // of dimension agents, so index counting silently feeds the evaluator a
