@@ -37,19 +37,39 @@ export async function excludeFromGit(cwd: string): Promise<void> {
   }
 }
 
+/** Git's empty tree: the diff base for a repository with no commits yet. */
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 /**
- * A fingerprint of the target's working tree (status + diff against HEAD, run artifacts excluded), or undefined when
- * the target is not a git repository. Two equal fingerprints mean the agents changed nothing.
+ * A fingerprint of the target's working tree, or undefined when the target is not a git repository. Two equal
+ * fingerprints mean the agents changed nothing. It covers: HEAD; `git status`; the binary-safe diff against HEAD (or
+ * the empty tree before the first commit), ignoring the user's external diff and textconv drivers; and the CONTENT of
+ * untracked files (status alone shows `?? file` both before and after an edit to an already-untracked file). Run
+ * artifacts under `.hivekit/` are excluded. Scope is the target directory: with a subdirectory as the target, edits
+ * outside it are not seen, and the run falls back to the plain "no progress" abort — never to a false pass.
  */
 export async function treeFingerprint(cwd: string): Promise<string | undefined> {
   try {
+    await run("git", ["rev-parse", "--is-inside-work-tree"], { cwd });
+  } catch {
+    return undefined;
+  }
+  try {
     const exclude = ":(exclude).hivekit";
-    const [status, diff] = await Promise.all([
+    let head = "";
+    try { head = (await run("git", ["rev-parse", "HEAD"], { cwd })).stdout.trim(); } catch { /* no commits yet */ }
+    const base = head || EMPTY_TREE;
+    const [status, diff, untracked] = await Promise.all([
       run("git", ["status", "--porcelain", "--untracked-files=all", "--", ".", exclude], { cwd, maxBuffer: 64 * 1024 * 1024 }),
-      run("git", ["diff", "HEAD", "--", ".", exclude], { cwd, maxBuffer: 256 * 1024 * 1024 }),
+      run("git", ["diff", "--binary", "--no-ext-diff", "--no-textconv", base, "--", ".", exclude], { cwd, maxBuffer: 256 * 1024 * 1024 }),
+      run("git", ["ls-files", "-o", "--exclude-standard", "-z", "--", ".", exclude], { cwd, maxBuffer: 64 * 1024 * 1024 }),
     ]);
-    const { stdout: head } = await run("git", ["rev-parse", "HEAD"], { cwd });
-    return `${head.trim()}\n${status.stdout}\n${diff.stdout}`;
+    const files = untracked.stdout.split("\0").filter(Boolean);
+    const hashes: string[] = [];
+    for (let i = 0; i < files.length; i += 500) {
+      hashes.push((await run("git", ["hash-object", "--", ...files.slice(i, i + 500)], { cwd, maxBuffer: 64 * 1024 * 1024 })).stdout);
+    }
+    return `${head || "(no commits)"}\n${status.stdout}\n${diff.stdout}\n${hashes.join("")}`;
   } catch {
     return undefined;
   }

@@ -52,3 +52,20 @@ test("treeFingerprint changes when the target changes, not when only run artifac
 test("treeFingerprint is undefined outside a git repository", async () => {
   assert.equal(await treeFingerprint(mkdtempSync(join(tmpdir(), "hivekit-nogit-"))), undefined);
 });
+
+test("treeFingerprint sees a second edit to an already-untracked file", async () => {
+  const { dir } = repo();
+  writeFileSync(join(dir, "new.txt"), "first\n");
+  const before = await treeFingerprint(dir);
+  writeFileSync(join(dir, "new.txt"), "second\n");
+  assert.notEqual(await treeFingerprint(dir), before);
+});
+
+test("treeFingerprint works in a repository with no commits", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hivekit-nohead-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  const before = await treeFingerprint(dir);
+  assert.ok(before !== undefined, "fingerprinted without HEAD");
+  writeFileSync(join(dir, "a.txt"), "x\n");
+  assert.notEqual(await treeFingerprint(dir), before);
+});

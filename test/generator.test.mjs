@@ -49,6 +49,7 @@ test("checkImproveFailures — majority without notes but a changed working tree
   // The 2026-10-04 false aborts: agents edited the target but their progress notes were refused under .claude/.
   const merged = ["# Agent 1\n\n_No progress recorded._", "# Agent 2\n\n_No progress recorded._", "# Agent 3\n\nDid X"];
   assert.doesNotThrow(() => checkImproveFailures(merged, 3, true));
+  assert.match(checkImproveFailures(merged, 3, true), /working tree changed/, "the downgrade is reported, not silent");
 });
 
 test("checkImproveFailures — majority without notes and an unchanged tree still throws", () => {
