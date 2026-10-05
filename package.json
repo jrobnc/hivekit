@@ -3,9 +3,14 @@
   "version": "1.0.0",
   "description": "Declare what done means — hivekit builds until it's true. Reference compiler for HIVE.md (intent-as-source for AI agents)",
   "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "files": [
     "bin/",
-    "dist/"
+    "dist/",
+    "plugins/",
+    "docs/"
   ],
   "exports": {
     "./intent": {

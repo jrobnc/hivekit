@@ -27,7 +27,7 @@ hivekit "<task description>" --mode build --cwd .
 hivekit --intent HIVE.md --mode build --cwd .
 ```
 
-A `HIVE.md` file declares the objective, success criteria, and constraints for a build. See [HIVE_SPEC.md](../../docs/HIVE_SPEC.md) for the full format. If a `HIVE.md` or `intent.md` exists in `--cwd`, HiveKit auto-discovers it — you can omit `--intent`.
+A `HIVE.md` file declares the objective, success criteria, and constraints for a build. See [HIVE_SPEC.md](../../../../docs/HIVE_SPEC.md) for the full format. If a `HIVE.md` or `intent.md` exists in `--cwd`, HiveKit auto-discovers it — you can omit `--intent`.
 
 ### Available flags
 
@@ -42,6 +42,7 @@ A `HIVE.md` file declares the objective, success criteria, and constraints for a
 | `--cwd <path>` | Working directory. Defaults to the current directory. |
 | `--name <name>` | Human-readable name for this run. |
 | `--max-turns <N>` | Maximum agent turns. Default: 100 for build. |
+| `--yaml` | Emit a structured intent.yaml alongside the markdown intent file. |
 
 ### Examples
 
@@ -71,6 +72,7 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 
 - **Exit code 0** means the build completed successfully.
 - Check `result.json` for the `outcome` field to see pass/fail status and details.
+- Non-zero exit codes: 1 = crash, 2 = failed verification, 3 = evaluation rounds exhausted, 4 = error.
 
 ## HIVE.md overview
 
@@ -81,10 +83,11 @@ A `HIVE.md` declares what "done" means so the Evaluator can verify the build. Ke
 - **Constraints** — Boundaries (e.g., "no new dependencies").
 - **Out of Scope** — What to explicitly skip.
 
-See [HIVE_SPEC.md](../../docs/HIVE_SPEC.md) for the full specification. Use the `hivekit-intent` skill for help writing a good HIVE.md.
+See [HIVE_SPEC.md](../../../../docs/HIVE_SPEC.md) for the full specification. Use the `hivekit-intent` skill for help writing a good HIVE.md.
 
 ## Prerequisites
 
+- Requires macOS or Linux (the launcher is a bash script).
 - `ANTHROPIC_API_KEY` must be set (Codex does not have Claude Code OAuth).
 - `HARNESS_ALLOW_API_KEY=1` must be set.
 - The `hivekit` CLI must be installed from GitHub (`git clone https://github.com/jrobnc/hivekit && cd hivekit && npm install && npm run build && npm link`). Do not install the npm package named "hivekit": that name belongs to an unrelated third-party project.

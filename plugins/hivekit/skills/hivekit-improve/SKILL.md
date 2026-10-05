@@ -54,8 +54,9 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 | Code | Meaning |
 |---|---|
 | 0 | All improvements passed verification. |
+| 1 | The harness itself crashed (unhandled exception). Check stderr. |
 | 2 | Some improvements failed verification. |
-| 3 | Agent exhausted its turn budget without completing. |
+| 3 | Evaluation rounds exhausted — the build failed to pass verification within the configured number of rounds. |
 | 4 | An error occurred during the run. |
 
 ## Typical workflow
@@ -67,6 +68,7 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 
 ## Prerequisites
 
+- Requires macOS or Linux (the launcher is a bash script).
 - `ANTHROPIC_API_KEY` must be set (Codex does not have Claude Code OAuth).
 - `HARNESS_ALLOW_API_KEY=1` must be set.
 - The `hivekit` CLI must be installed from GitHub (`git clone https://github.com/jrobnc/hivekit && cd hivekit && npm install && npm run build && npm link`). Do not install the npm package named "hivekit": that name belongs to an unrelated third-party project.

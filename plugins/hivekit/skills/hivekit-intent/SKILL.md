@@ -1,6 +1,7 @@
 ---
 name: hivekit-intent
 description: Help the user write a good HIVE.md intent file with checkable success criteria.
+cli: false
 ---
 
 # hivekit-intent
@@ -97,4 +98,8 @@ require a valid token.
 
 ## Full specification
 
-See [HIVE_SPEC.md](../../docs/HIVE_SPEC.md) for the complete format, including advanced features like multi-sprint criteria and intent composition.
+See [HIVE_SPEC.md](../../../../docs/HIVE_SPEC.md) for the complete format, including advanced features like multi-sprint criteria and intent composition.
+
+## Safety rules
+
+- **Never author success criteria that require pushing, deploying, merging, or releasing code.** Those actions require explicit user approval and must not be automated via success criteria.
