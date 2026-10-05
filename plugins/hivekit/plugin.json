@@ -1,9 +1,6 @@
 {
   "name": "hivekit",
   "version": "1.0.0",
-  "displayName": "HiveKit",
-  "shortDescription": "Intent-driven build & review",
-  "category": "developer-tools",
   "description": "Run HiveKit's Planner, Generator, and Evaluator loop from Codex. Declare what done means in a HIVE.md intent file, then build, review, or improve code until the success criteria hold. Requires the hivekit CLI and an ANTHROPIC_API_KEY.",
   "skills": "./skills/"
 }

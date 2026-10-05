@@ -68,11 +68,19 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 - **`progress.md`** — Sprint-by-sprint progress log.
 - **`result.json`** — Structured result with `outcome` field and metadata.
 
+## Exit codes
+
+| Code | Meaning | What to do |
+|---|---|---|
+| 0 | Build passed evaluator verification. | Read `result.json` for details. |
+| 1 | The harness itself crashed (unhandled exception). | Read stderr for the stack trace. |
+| 2 | Build failed verification. | Read the report and run `hivekit-improve` on the plan. |
+| 3 | Evaluation rounds exhausted — failed to pass within the configured rounds. | Read the report; narrow the task or raise `--max-turns`. |
+| 4 | An error occurred during the run. | Check credentials, flags, and network. Read stderr. |
+
 ## Reading the result
 
-- **Exit code 0** means the build completed successfully.
 - Check `result.json` for the `outcome` field to see pass/fail status and details.
-- Non-zero exit codes: 1 = crash, 2 = failed verification, 3 = evaluation rounds exhausted, 4 = error.
 
 ## HIVE.md overview
 

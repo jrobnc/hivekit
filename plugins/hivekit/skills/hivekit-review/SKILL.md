@@ -21,7 +21,7 @@ hivekit "<review task>" --mode review --cwd .
 
 | Flag | Description |
 |---|---|
-| `--mode review` | Explicitly sets review mode (also inferred if the task contains "review"). |
+| `--mode review` | Sets review mode. Must be passed explicitly — omitting it and relying on keyword inference changes exit-code semantics (codes 2 and 3 become reachable). |
 | `--depth <quick\|standard\|deep>` | Controls thoroughness. `quick` for a fast pass, `deep` for exhaustive analysis. Default: `standard`. |
 | `--focus <area>` | Narrow the review to a subsystem (e.g., `--focus auth`, `--focus ios`). |
 | `--cwd <path>` | Working directory. Defaults to the current directory. |
@@ -49,10 +49,18 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 - **`result.json`** — Structured result with `outcome` field and metadata.
 - **`plan.md`** — The review plan (can be fed into `hivekit-improve` to fix findings).
 
+## Exit codes (with explicit `--mode review`)
+
+| Code | Meaning | What to do |
+|---|---|---|
+| 0 | Review completed (not that there are zero findings). | Read the report; pass `plan.md` to `hivekit-improve` to fix findings. |
+| 1 | The harness itself crashed (unhandled exception). | Read stderr for the stack trace. |
+| 4 | An error occurred during the run. | Check credentials, flags, and network. Read stderr. |
+
+> **Note:** Exit codes 2 (failed verification) and 3 (rounds exhausted) are only reachable when mode is *inferred* from keywords rather than set with `--mode review`. Always pass `--mode review` explicitly to get the simpler exit-code contract above.
+
 ## Reading the result
 
-- **Exit code 0** means the review completed successfully (not that there are zero findings).
-- Non-zero exit codes: 1 = crash, 2 = failed verification, 3 = evaluation rounds exhausted, 4 = error.
 - Check `result.json` for the `outcome` field.
 - The `plan.md` from this run can be passed to a subsequent improve run: `hivekit --mode improve --plan .hivekit/runs/<run-id>/plan.md`.
 

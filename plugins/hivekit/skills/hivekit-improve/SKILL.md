@@ -51,13 +51,13 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 
 ## Exit codes
 
-| Code | Meaning |
-|---|---|
-| 0 | All improvements passed verification. |
-| 1 | The harness itself crashed (unhandled exception). Check stderr. |
-| 2 | Some improvements failed verification. |
-| 3 | Evaluation rounds exhausted — the build failed to pass verification within the configured number of rounds. |
-| 4 | An error occurred during the run. |
+| Code | Meaning | What to do |
+|---|---|---|
+| 0 | All improvements passed verification. | Read `result.json` for details. |
+| 1 | The harness itself crashed (unhandled exception). | Read stderr for the stack trace. |
+| 2 | Some improvements failed verification. | Read the report and run `hivekit-improve` on the plan. |
+| 3 | Evaluation rounds exhausted — failed to pass within the configured rounds. | Read the report; narrow the task or raise `--max-turns`. |
+| 4 | An error occurred during the run. | Check credentials, flags, and network. Read stderr. |
 
 ## Typical workflow
 

@@ -23,7 +23,7 @@ function readJSON(path) {
   return JSON.parse(readFileSync(path, "utf-8"));
 }
 
-/** Extract YAML frontmatter from a SKILL.md string. Returns { name, description } or null. */
+/** Extract YAML frontmatter from a SKILL.md string. Returns the full frontmatter object (all YAML key-value pairs) if both name and description are present, otherwise null. The cli field, when 'false', marks a guidance-only skill with no CLI command. */
 function parseFrontmatter(content) {
   const match = content.match(/^---\n([\s\S]*?)\n---/);
   if (!match) return null;
@@ -72,19 +72,18 @@ test("plugin.json name <= 64 chars", () => {
   assert.ok(plugin.name.length <= 64, `name is ${plugin.name.length} chars`);
 });
 
-test("plugin.json displayName <= 30 chars", () => {
-  assert.ok(plugin.displayName, "displayName is required");
-  assert.ok(
-    plugin.displayName.length <= 30,
-    `displayName is ${plugin.displayName.length} chars`,
-  );
-});
-
-test("plugin.json shortDescription <= 30 chars", () => {
-  assert.ok(plugin.shortDescription, "shortDescription is required");
-  assert.ok(
-    plugin.shortDescription.length <= 30,
-    `shortDescription is ${plugin.shortDescription.length} chars`,
+test("plugin.json contains only manifest-spec fields", () => {
+  // plugin.json must contain only fields from the Codex plugin skill spec:
+  // name, version, description, skills (optional: apps).
+  // Dashboard listing fields (displayName, shortDescription, category) belong
+  // in the submission form, not the manifest.
+  const allowed = new Set(["name", "version", "description", "skills", "apps"]);
+  const actual = Object.keys(plugin);
+  const unexpected = actual.filter((k) => !allowed.has(k));
+  assert.deepEqual(
+    unexpected,
+    [],
+    `plugin.json has non-spec fields: ${unexpected.join(", ")}`,
   );
 });
 
@@ -234,20 +233,55 @@ test("exit codes in src/outcome.ts are all documented in hivekit-improve SKILL.m
   );
 });
 
-test("build and review skills mention non-zero exit codes", () => {
-  const nonZeroCodes = [1, 2, 3, 4];
-  for (const skillName of ["hivekit-build", "hivekit-review"]) {
+test("build and review skills document exit codes in table format", () => {
+  // Expected exit codes per skill (only those reachable with explicit mode flags).
+  // Review with explicit --mode review can only produce 0 and 4 (codes 2/3 are
+  // inferred-mode only per src/outcome.ts:119-121).
+  const expectedCodes = {
+    "hivekit-build": new Set([0, 1, 2, 3, 4]),
+    "hivekit-review": new Set([0, 1, 4]),
+  };
+
+  for (const [skillName, required] of Object.entries(expectedCodes)) {
     const content = readFileSync(
       join(PLUGIN_DIR, "skills", skillName, "SKILL.md"),
       "utf-8",
     );
-    for (const code of nonZeroCodes) {
-      assert.ok(
-        content.includes(String(code)),
-        `${skillName}/SKILL.md should mention exit code ${code}`,
-      );
+
+    // Extract codes from pipe-delimited table rows (same pattern as the
+    // hivekit-improve exit-code test above).
+    const tableCodes = new Set();
+    for (const m of content.matchAll(/\|\s*(\d+)\s*\|/g)) {
+      tableCodes.add(Number(m[1]));
     }
+
+    const missing = [];
+    for (const code of required) {
+      if (!tableCodes.has(code)) missing.push(code);
+    }
+    assert.deepEqual(
+      missing,
+      [],
+      `${skillName}/SKILL.md exit-code table missing codes: ${missing.join(", ")}`,
+    );
   }
+});
+
+test("exit-code table regex does not false-match incidental digits", () => {
+  // Prove the regex would fail if exit-code documentation were deleted:
+  // a string with incidental digit mentions but no table-formatted codes.
+  const fakeContent = [
+    "Set `HARNESS_ALLOW_API_KEY=1` to enable.",
+    "Default: 40 for review.",
+    "Use depth 2 or 3 for deeper analysis.",
+    "Exit code 4 means an error occurred.",
+  ].join("\n");
+
+  const tableCodes = new Set();
+  for (const m of fakeContent.matchAll(/\|\s*(\d+)\s*\|/g)) {
+    tableCodes.add(Number(m[1]));
+  }
+  assert.equal(tableCodes.size, 0, "Regex should not match digits outside table rows");
 });
 
 // ── Link resolution ────────────────────────────────────────────────
@@ -285,9 +319,3 @@ test("relative markdown links in plugins/ and docs/ resolve to existing files", 
   assert.deepEqual(broken, [], `Broken relative links:\n${broken.join("\n")}`);
 });
 
-// ── Category field ─────────────────────────────────────────────────
-
-test("plugin.json has category field matching docs", () => {
-  assert.ok(plugin.category, "plugin.json missing category field");
-  assert.equal(plugin.category, "developer-tools");
-});

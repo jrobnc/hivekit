@@ -51,9 +51,15 @@ Before a Codex user can use the plugin, they need:
 4. Manual test in Codex: point your Codex environment at the `plugins/hivekit/` directory
    and verify that the four skills appear and respond to test prompts.
 
-## Metadata Drafts
+## Plugin Manifest Format
 
-These values are ready for the OpenAI plugin submission form:
+The `plugin.json` manifest follows the [Codex plugin skill spec](https://developers.openai.com/plugins/build/skills.md). Required fields: `name`, `version`, `description`, `skills`. Optional: `apps`.
+
+Dashboard listing metadata (`displayName`, `shortDescription`, `category`) belongs in the submission form (see `deploy/submission.md`), not in `plugin.json`.
+
+## Listing Metadata (Dashboard)
+
+These values are for the OpenAI plugin submission form (per `deploy/submission.md`), not the manifest:
 
 | Field | Value | Limit |
 |---|---|---|
