@@ -96,7 +96,7 @@ async function runReviewGenerators(
     // Read the findings file the agent wrote
     try {
       const raw = await readFile(findingsPath, "utf-8");
-      return JSON.parse(raw) as DimensionFindings;
+      return normalizeFindings(JSON.parse(raw), dim, runId);
     } catch {
       return {
         dimension: dim,
@@ -251,6 +251,22 @@ async function runImproveGenerators(
  * the target but cannot (or forget to) write their note must not abort finished work. When the working tree changed,
  * the run continues to the evaluator, which judges the actual diff.
  */
+/**
+ * Coerce whatever a review agent wrote into DimensionFindings. Agents sometimes write a bare array
+ * instead of { findings: [...] }; reading `.findings.length` on that crashed the whole run after every
+ * specialist had finished. A bare array becomes the findings list; any other shape becomes an empty
+ * dimension (counted by the empty-findings guard) instead of an exception.
+ */
+export function normalizeFindings(parsed: unknown, dim: string, runId: string): DimensionFindings {
+  const empty = { dimension: dim, agent: `Agent: ${dim}`, runId, findings: [] } as DimensionFindings;
+  if (Array.isArray(parsed)) return { ...empty, findings: parsed } as DimensionFindings;
+  if (parsed && typeof parsed === "object" && Array.isArray((parsed as { findings?: unknown }).findings)) {
+    return { ...empty, ...(parsed as object) } as DimensionFindings;
+  }
+  console.warn(`  [${dim}] findings file has an unexpected shape — treating as empty`);
+  return empty;
+}
+
 export function checkImproveFailures(merged: string[], agentCount: number, treeChanged = false): string | undefined {
   const failedCount = merged.filter(m => m.includes("_No progress recorded._")).length;
   if (failedCount <= agentCount / 2) return undefined;
