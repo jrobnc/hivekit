@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { runAgent, fillTemplate, loadPrinciples } from "./sdk-utils.js";
+import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
 import { formatCriteriaForEvaluator } from "./intent.js";
 import type { RunContext, EvaluationResult, Mode, CriterionScore } from "./types.js";
 
@@ -322,7 +322,8 @@ export async function runEvaluator(
 
   const { result: resultText, durationMs } = await runAgent({
     prompt,
-    model: "opus",
+    ...TIERS.evaluate,
+    label: `evaluator-r${round}`,
     cwd: config.cwd,
     allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
     permissionMode: "acceptEdits",

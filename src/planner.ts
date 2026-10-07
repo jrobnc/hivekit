@@ -1,7 +1,7 @@
 import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { runAgent, fillTemplate, loadPrinciples } from "./sdk-utils.js";
+import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
 import type { RunContext, PlannerOutput } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -25,7 +25,8 @@ export async function runPlanner(ctx: RunContext): Promise<PlannerOutput> {
   });
 
   const agentOpts = {
-    model: "opus" as const,
+    ...TIERS.plan,
+    label: "planner",
     cwd: config.cwd,
     allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
     permissionMode: "acceptEdits" as const,

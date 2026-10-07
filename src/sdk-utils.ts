@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { readFile } from "fs/promises";
+import { readFile, appendFile, mkdir } from "fs/promises";
+import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -22,9 +23,28 @@ export async function loadPrinciples(): Promise<string> {
   return principlesCache;
 }
 
+export type Effort = "low" | "medium" | "high" | "max";
+
+/**
+ * Model tier per role. Aliases, not pinned ids, so each new release is picked up.
+ * Opus plans and judges, Sonnet does the volume, Fable only at advisor checkpoints.
+ */
+export const TIERS = {
+  plan: { model: "opus", effort: "high" },
+  build: { model: "sonnet", effort: "medium" },
+  review: { model: "sonnet", effort: "medium" },
+  evaluate: { model: "opus", effort: "high" },
+  advise: { model: "fable", effort: "high" },
+} as const satisfies Record<string, { model: string; effort: Effort }>;
+
+const LEDGER = join(homedir(), ".cache", "hivekit", "ledger.jsonl");
+
 export interface AgentOptions {
   prompt: string;
   model?: string;
+  effort?: Effort;
+  /** Ledger label, e.g. "planner" or "generator-r2" */
+  label?: string;
   cwd?: string;
   allowedTools?: string[];
   permissionMode?: PermissionMode;
@@ -51,6 +71,11 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     allowedTools: opts.allowedTools ?? ["Read", "Glob", "Grep", "Bash"],
     permissionMode: opts.permissionMode ?? "acceptEdits",
     maxTurns: opts.maxTurns ?? 30,
+    effort: opts.effort,
+    // ponytail: one optional per-agent cap; per-run caps when the ledger shows a need
+    maxBudgetUsd: process.env.HIVEKIT_MAX_USD_PER_AGENT
+      ? Number(process.env.HIVEKIT_MAX_USD_PER_AGENT)
+      : undefined,
   };
 
   let result = "";
@@ -90,6 +115,22 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   } else {
     console.log(`  [agent] ${messageCount} messages, ${Math.round(durationMs / 1000)}s, $${totalCostUsd.toFixed(2)}`);
   }
+
+  await mkdir(dirname(LEDGER), { recursive: true });
+  await appendFile(
+    LEDGER,
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      label: opts.label ?? "agent",
+      model: sdkOpts.model,
+      effort: opts.effort ?? null,
+      usd: totalCostUsd,
+      ms: durationMs,
+      cwd: opts.cwd,
+      error: isError,
+    }) + "\n",
+    "utf-8"
+  );
 
   if (isError) {
     throw new Error(`Agent failed: ${result}`);
