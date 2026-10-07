@@ -44,7 +44,8 @@ export const TIERS = {
   advise: { model: "fable", effort: "high" },
 } as const satisfies Record<string, { model: string; effort: Effort }>;
 
-export const LEDGER = join(homedir(), ".cache", "hivekit", "ledger.jsonl");
+/** Cost ledger. HIVEKIT_LEDGER points it elsewhere (the test suite uses a throwaway file). */
+export const LEDGER = process.env.HIVEKIT_LEDGER || join(homedir(), ".cache", "hivekit", "ledger.jsonl");
 
 export interface AgentOptions {
   prompt: string;

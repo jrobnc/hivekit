@@ -29,7 +29,7 @@
   "scripts": {
     "build": "tsc && rm -rf dist/prompts && cp -r src/prompts dist/prompts",
     "prepare": "npm run build",
-    "test": "npm run build && node --experimental-test-module-mocks --test test/*.test.mjs",
+    "test": "npm run build && HIVEKIT_LEDGER=\"${TMPDIR:-/tmp}/hivekit-test-ledger-$$.jsonl\" node --experimental-test-module-mocks --test test/*.test.mjs",
     "test:packaged": "npm run build && node --test test/network/*.test.mjs",
     "dev": "env -u ANTHROPIC_API_KEY tsx src/index.ts",
     "start": "env -u ANTHROPIC_API_KEY node dist/index.js"

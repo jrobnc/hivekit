@@ -15,7 +15,7 @@
 write intent · verify by tiers · reconcile to green · Planner → Generator → Evaluator · Claude Max OAuth · Apache-2.0
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
-&nbsp;![Tests](https://img.shields.io/badge/tests-218%20passing-brightgreen)
+&nbsp;![Tests](https://img.shields.io/badge/tests-220%20passing-brightgreen)
 &nbsp;![Built on](https://img.shields.io/badge/built%20on-Claude%20Agent%20SDK-d97757)
 &nbsp;![Status](https://img.shields.io/badge/status-alpha-orange)
 
@@ -44,6 +44,7 @@ HIVE.md  ──►  Planner  ──►  plan.md  ──►  Generator  ──►
 - **Generator** (Sonnet) writes the code.
 - **Evaluator** (Opus) grades the result against your **Success Criteria** — running `[auto]` checks for real, judging `[judge]` ones, gating `[human]` ones — and loops until they hold.
 - **Advisor** (Fable) checks the plan before execution, verifies nothing was skipped before accepting a PASS, and diagnoses repeated failures mid-loop. Optional — disable with `HIVEKIT_ADVISOR=0`.
+- **Advisor at `--depth quick`** runs only the done check (catches a false PASS); the plan and stuck checks run at standard and deep depth.
 - **Jev** (TypeSafe System One) — an optional, opt-in yes/no gate that decides whether the generator is stuck on the same failure. Off unless `HIVEKIT_JEV=1` and a key is set; text is masked (emails, phone numbers) and capped before it leaves, and spend stops at `HIVEKIT_JEV_BUDGET`.
 
 Same shape as Terraform or a Kubernetes reconcile loop: declare the desired state, a controller drives reality toward it — except here the desired state is *what "done" means*, and the controller is a build loop.
@@ -227,6 +228,7 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `HARNESS_ALLOW_API_KEY` | any non-empty value | unset | Opts out of that strip for one run: `ANTHROPIC_API_KEY` is passed through (metered API billing) and the launcher prints a warning to stderr. |
 | `HARNESS_DEBUG` | any non-empty value | unset | Per-message agent tracing — logs `[agent] msg#N type=…` to stderr for every SDK message, in every phase. |
 | `HIVEKIT_ADVISOR` | `0` to disable | enabled | Controls the Fable advisor checkpoints (plan, stuck, done). Set to `0` to skip all advisor and Jev calls. |
+| `HIVEKIT_LEDGER` | file path | `~/.cache/hivekit/ledger.jsonl` | Where the cost ledger is written. `npm test` points it at a throwaway file so tests never touch your real ledger. |
 | `HIVEKIT_MAX_USD_PER_AGENT` | decimal | unset | Per-agent cost cap passed to the Agent SDK as `maxBudgetUsd`. |
 | `HIVEKIT_JEV` | `1` to enable | off | Opt-in for the Jev gate. Only with `HIVEKIT_JEV=1` (and a key) is masked evaluator feedback (each failure cut to 1,900 chars, total 4,000; emails/phones replaced) sent to `api.typesafe.ai`. |
 | `HIVEKIT_JEV_BUDGET` | USD | `25` | Jev stops once its spend recorded in `~/.cache/hivekit/ledger.jsonl` reaches this. |
