@@ -15,7 +15,7 @@
 write intent · verify by tiers · reconcile to green · Planner → Generator → Evaluator · Claude Max OAuth · Apache-2.0
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
-&nbsp;![Tests](https://img.shields.io/badge/tests-20%20passing-brightgreen)
+&nbsp;![Tests](https://img.shields.io/badge/tests-165%20passing-brightgreen)
 &nbsp;![Built on](https://img.shields.io/badge/built%20on-Claude%20Agent%20SDK-d97757)
 &nbsp;![Status](https://img.shields.io/badge/status-alpha-orange)
 
@@ -41,8 +41,10 @@ HIVE.md  ──►  Planner  ──►  plan.md  ──►  Generator  ──►
 ```
 
 - **Planner** (Opus) compiles your `HIVE.md` into a plan.
-- **Generator** (Opus / Sonnet) writes the code.
+- **Generator** (Sonnet) writes the code.
 - **Evaluator** (Opus) grades the result against your **Success Criteria** — running `[auto]` checks for real, judging `[judge]` ones, gating `[human]` ones — and loops until they hold.
+- **Advisor** (Fable) checks the plan before execution, verifies nothing was skipped before accepting a PASS, and diagnoses repeated failures mid-loop. Optional — disable with `HIVEKIT_ADVISOR=0`.
+- **Jev** (TypeSafe System One) — a cheap yes/no fork gate that decides whether the generator is stuck on the same failure. Only active when `JEV_API_KEY` is set.
 
 Same shape as Terraform or a Kubernetes reconcile loop: declare the desired state, a controller drives reality toward it — except here the desired state is *what "done" means*, and the controller is a build loop.
 
@@ -224,9 +226,15 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `ANTHROPIC_API_KEY` | API key | unset | Stripped from the environment by the launcher **before Node starts**, so a stray key can't silently switch the run to metered API billing. Reaches the Agent SDK only if `HARNESS_ALLOW_API_KEY` is set. |
 | `HARNESS_ALLOW_API_KEY` | any non-empty value | unset | Opts out of that strip for one run: `ANTHROPIC_API_KEY` is passed through (metered API billing) and the launcher prints a warning to stderr. |
 | `HARNESS_DEBUG` | any non-empty value | unset | Per-message agent tracing — logs `[agent] msg#N type=…` to stderr for every SDK message, in every phase. |
+| `HIVEKIT_ADVISOR` | `0` to disable | enabled | Controls the Fable advisor checkpoints (plan, stuck, done). Set to `0` to skip all advisor and Jev calls. |
+| `HIVEKIT_MAX_USD_PER_AGENT` | decimal | unset | Per-agent cost cap passed to the Agent SDK as `maxBudgetUsd`. |
+| `JEV_API_KEY` | API key | unset | Key for TypeSafe System One; enables the Jev yes/no fork gate. When set, evaluator feedback text is sent to `api.typesafe.ai` to classify whether the generator is stuck on the same failure. |
+| `JEV_MODEL` | model string | `jev-1.13.0` | Jev model override. |
 | `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_EFFORT`, `ANTHROPIC_MODEL`, `AI_AGENT` | set by an enclosing Claude Code session | unset | Always stripped by the launcher — these are not hivekit settings. Inherited from a parent Claude Code session they leak into the `claude` subprocess the SDK spawns, which then crashes on startup trying to attach to a session that isn't its own. |
 
 `CLAUDE_CODE_OAUTH_TOKEN` is deliberately left untouched — it is the Claude Max credential that subprocess authenticates with.
+
+Every agent call is logged to `~/.cache/hivekit/ledger.jsonl` (model, tokens, cost estimate, timestamp) for cost tracking and auditability.
 
 ## Under the hood — the implementation path
 
@@ -238,11 +246,13 @@ bin/hivekit              strips ANTHROPIC_API_KEY, then runs dist/index.js   (Cl
        ├─ src/intent.ts  loadIntent(): parse HIVE.md → Objective + Success Criteria with [auto|judge|human] tiers
        │                 intentCompilePreamble() feeds the Planner; formatCriteriaForEvaluator() pins the rubric
        ├─ src/planner.ts    Opus agent reads the HIVE.md + the target repo (incl. its CLAUDE.md) → writes plan.md
-       ├─ src/generator.ts  build: 1 Opus agent · review: 3–7 parallel Sonnet · improve: 1–3 parallel Opus
-       └─ src/evaluator.ts  Opus agent grades the result vs the pinned criteria → parseEvaluation() gate
-                            pass → report.md   ·   fail → feedback string → back to the Generator
+       ├─ src/generator.ts  build: 1 Sonnet agent · review: 3–7 parallel Sonnet · improve: 1–3 parallel Sonnet
+       ├─ src/evaluator.ts  Opus agent grades the result vs the pinned criteria → parseEvaluation() gate
+       │                    pass → report.md   ·   fail → feedback string → back to the Generator
+       └─ src/advisor.ts    Fable advisor at three checkpoints (plan, stuck, done); Jev yes/no fork gate
   shared:
-       ├─ src/sdk-utils.ts  runAgent() wraps the Agent SDK; loadPrinciples() injects the guardrails
+       ├─ src/sdk-utils.ts  runAgent() wraps the Agent SDK; loadPrinciples() injects the guardrails;
+       │                    TIERS maps roles to models; appendLedger() logs every call to ~/.cache/hivekit/ledger.jsonl
        ├─ src/prompts/*.md  9 phase templates ({planner,generator,evaluator}-{review,build,improve})
        └─ src/prompts/principles.md   the operating guardrails injected into every agent
 ```

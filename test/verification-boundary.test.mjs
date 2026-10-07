@@ -125,6 +125,8 @@ function runCli(ws, script, extraArgs = [], opts = {}) {
     ...process.env,
     NODE_OPTIONS: "",
     HIVEKIT_TEST_SDK_SCRIPT: scriptPath,
+    // These tests script the evaluator boundary; the advisor (own tests) would consume scripted turns.
+    HIVEKIT_ADVISOR: "0",
   };
   try {
     const stdout = execFileSync("node", args, { encoding: "utf-8", timeout: 60000, env });
@@ -382,7 +384,7 @@ test("EPIPE on stdout still produces result.json and report.md, and keeps its ex
   try {
     execFileSync("bash", ["-c", cmd], {
       encoding: "utf-8", timeout: 60000,
-      env: { ...process.env, NODE_OPTIONS: "", HIVEKIT_TEST_SDK_SCRIPT: scriptPath },
+      env: { ...process.env, NODE_OPTIONS: "", HIVEKIT_TEST_SDK_SCRIPT: scriptPath, HIVEKIT_ADVISOR: "0" },
     });
   } catch (err) {
     code = err.status;
