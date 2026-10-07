@@ -55,11 +55,11 @@ Before a Codex user can use the plugin, they need:
 
 The `plugin.json` manifest follows the [Codex plugin skill spec](https://developers.openai.com/plugins/build/skills.md). Required fields: `name`, `version`, `description`, `skills`. Optional: `apps`.
 
-Dashboard listing metadata (`displayName`, `shortDescription`, `category`) belongs in the submission form (see `deploy/submission.md`), not in `plugin.json`.
+Dashboard listing metadata (`displayName`, `shortDescription`, `category`) belongs in the submission form (see the [OpenAI plugin submission docs](https://developers.openai.com/plugins/deploy/submission.md)), not in `plugin.json`.
 
 ## Listing Metadata (Dashboard)
 
-These values are for the OpenAI plugin submission form (per `deploy/submission.md`), not the manifest:
+These values are for the OpenAI plugin submission form (per the [OpenAI plugin submission docs](https://developers.openai.com/plugins/deploy/submission.md)), not the manifest:
 
 | Field | Value | Limit |
 |---|---|---|

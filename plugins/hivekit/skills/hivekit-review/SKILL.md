@@ -57,7 +57,7 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 | 1 | The harness itself crashed (unhandled exception). | Read stderr for the stack trace. |
 | 4 | An error occurred during the run. | Check credentials, flags, and network. Read stderr. |
 
-> **Note:** Exit codes 2 (failed verification) and 3 (rounds exhausted) are only reachable when mode is *inferred* from keywords rather than set with `--mode review`. Always pass `--mode review` explicitly to get the simpler exit-code contract above.
+> **Note:** A review always stops after one evaluation round, so exit code 3 (rounds exhausted) never occurs in review. Exit code 2 (failed verification) is reachable only when the mode is *inferred* from keywords rather than set with `--mode review`. Always pass `--mode review` explicitly to get the contract above.
 
 ## Reading the result
 
