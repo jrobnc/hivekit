@@ -37,7 +37,7 @@ export const TIERS = {
   advise: { model: "fable", effort: "high" },
 } as const satisfies Record<string, { model: string; effort: Effort }>;
 
-const LEDGER = join(homedir(), ".cache", "hivekit", "ledger.jsonl");
+export const LEDGER = join(homedir(), ".cache", "hivekit", "ledger.jsonl");
 
 export interface AgentOptions {
   prompt: string;

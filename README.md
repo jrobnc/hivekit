@@ -44,7 +44,7 @@ HIVE.md  ──►  Planner  ──►  plan.md  ──►  Generator  ──►
 - **Generator** (Sonnet) writes the code.
 - **Evaluator** (Opus) grades the result against your **Success Criteria** — running `[auto]` checks for real, judging `[judge]` ones, gating `[human]` ones — and loops until they hold.
 - **Advisor** (Fable) checks the plan before execution, verifies nothing was skipped before accepting a PASS, and diagnoses repeated failures mid-loop. Optional — disable with `HIVEKIT_ADVISOR=0`.
-- **Jev** (TypeSafe System One) — a cheap yes/no fork gate that decides whether the generator is stuck on the same failure. Only active when `JEV_API_KEY` is set.
+- **Jev** (TypeSafe System One) — an optional, opt-in yes/no gate that decides whether the generator is stuck on the same failure. Off unless `HIVEKIT_JEV=1` and a key is set; text is masked (emails, phone numbers) and capped before it leaves, and spend stops at `HIVEKIT_JEV_BUDGET`.
 
 Same shape as Terraform or a Kubernetes reconcile loop: declare the desired state, a controller drives reality toward it — except here the desired state is *what "done" means*, and the controller is a build loop.
 
@@ -228,7 +228,9 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `HARNESS_DEBUG` | any non-empty value | unset | Per-message agent tracing — logs `[agent] msg#N type=…` to stderr for every SDK message, in every phase. |
 | `HIVEKIT_ADVISOR` | `0` to disable | enabled | Controls the Fable advisor checkpoints (plan, stuck, done). Set to `0` to skip all advisor and Jev calls. |
 | `HIVEKIT_MAX_USD_PER_AGENT` | decimal | unset | Per-agent cost cap passed to the Agent SDK as `maxBudgetUsd`. |
-| `JEV_API_KEY` | API key | unset | Key for TypeSafe System One; enables the Jev yes/no fork gate. When set, evaluator feedback text is sent to `api.typesafe.ai` to classify whether the generator is stuck on the same failure. |
+| `HIVEKIT_JEV` | `1` to enable | off | Opt-in for the Jev gate. Only with `HIVEKIT_JEV=1` (and a key) is masked evaluator feedback (each failure cut to 1,900 chars, total 4,000; emails/phones replaced) sent to `api.typesafe.ai`. |
+| `HIVEKIT_JEV_BUDGET` | USD | `25` | Jev stops once its spend recorded in `~/.cache/hivekit/ledger.jsonl` reaches this. |
+| `JEV_API_KEY` | API key | unset | TypeSafe System One key (or `~/.config/jev/credentials`). Has no effect without `HIVEKIT_JEV=1`. |
 | `JEV_MODEL` | model string | `jev-1.13.0` | Jev model override. |
 | `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_EFFORT`, `ANTHROPIC_MODEL`, `AI_AGENT` | set by an enclosing Claude Code session | unset | Always stripped by the launcher — these are not hivekit settings. Inherited from a parent Claude Code session they leak into the `claude` subprocess the SDK spawns, which then crashes on startup trying to attach to a session that isn't its own. |
 

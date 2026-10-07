@@ -574,7 +574,8 @@ async function main(): Promise<RunOutcome> {
       // ── Checkpoint 2: stuck (repeated failure → advisor escalation) ──
       if (advised && round >= 2 && previousFeedback) {
         const same = await jevYesNo(
-          `Previous failure:\n${previousFeedback}\n\nCurrent failure:\n${evaluation.feedback}`,
+          // Cut each side so the current failure is never truncated away by the 4,000-char cap in maskForJev.
+          `Previous failure:\n${previousFeedback.slice(0, 1900)}\n\nCurrent failure:\n${(evaluation.feedback ?? "").slice(0, 1900)}`,
           "Is the current failure essentially the same problem as the previous failure?"
         );
         console.log(`[jev] same failure twice: ${same === null ? "unsure, escalating" : same}`);
