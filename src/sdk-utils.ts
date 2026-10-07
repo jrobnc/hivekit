@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { readFile } from "fs/promises";
+import { readFile, appendFile, mkdir } from "fs/promises";
+import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -22,9 +23,35 @@ export async function loadPrinciples(): Promise<string> {
   return principlesCache;
 }
 
+/** A finite number > 0 from an env value, else undefined (so a typo never disables a cap via NaN). */
+export function positiveNumber(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+export type Effort = "low" | "medium" | "high" | "max";
+
+/**
+ * Model tier per role. Aliases, not pinned ids, so each new release is picked up.
+ * Opus plans and judges, Sonnet does the volume, Fable only at advisor checkpoints.
+ */
+export const TIERS = {
+  plan: { model: "opus", effort: "high" },
+  build: { model: "sonnet", effort: "medium" },
+  review: { model: "sonnet", effort: "medium" },
+  evaluate: { model: "opus", effort: "high" },
+  advise: { model: "fable", effort: "high" },
+} as const satisfies Record<string, { model: string; effort: Effort }>;
+
+export const LEDGER = join(homedir(), ".cache", "hivekit", "ledger.jsonl");
+
 export interface AgentOptions {
   prompt: string;
   model?: string;
+  effort?: Effort;
+  /** Ledger label, e.g. "planner" or "generator-r2" */
+  label?: string;
   cwd?: string;
   allowedTools?: string[];
   permissionMode?: PermissionMode;
@@ -51,6 +78,9 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     allowedTools: opts.allowedTools ?? ["Read", "Glob", "Grep", "Bash"],
     permissionMode: opts.permissionMode ?? "acceptEdits",
     maxTurns: opts.maxTurns ?? 30,
+    effort: opts.effort,
+    // ponytail: one optional per-agent cap; per-run caps when the ledger shows a need
+    maxBudgetUsd: positiveNumber(process.env.HIVEKIT_MAX_USD_PER_AGENT),
   };
 
   let result = "";
@@ -89,6 +119,27 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     console.warn("[agent] WARNING: No messages received from SDK query");
   } else {
     console.log(`  [agent] ${messageCount} messages, ${Math.round(durationMs / 1000)}s, $${totalCostUsd.toFixed(2)}`);
+  }
+
+  // The ledger is bookkeeping: an unwritable ~/.cache must never crash a run before result.json exists.
+  try {
+    await mkdir(dirname(LEDGER), { recursive: true });
+    await appendFile(
+      LEDGER,
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        label: opts.label ?? "agent",
+        model: sdkOpts.model,
+        effort: opts.effort ?? null,
+        usd: totalCostUsd,
+        ms: durationMs,
+        cwd: opts.cwd,
+        error: isError,
+      }) + "\n",
+      "utf-8"
+    );
+  } catch (err) {
+    console.warn(`  [ledger] not written (${err instanceof Error ? err.message : err})`);
   }
 
   if (isError) {

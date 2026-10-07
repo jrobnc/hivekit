@@ -13,6 +13,7 @@ import { randomBytes } from "crypto";
 import { runPlanner } from "./planner.js";
 import { runGenerator } from "./generator.js";
 import { runEvaluator } from "./evaluator.js";
+import { advise, jevYesNo } from "./advisor.js";
 import { loadIntent, intentCompilePreamble, toIntentYaml } from "./intent.js";
 import {
   buildRunResult,
@@ -495,6 +496,19 @@ async function main(): Promise<RunOutcome> {
     // ── Phase 2 & 3: Generate → Evaluate loop ───────────────────
     let evaluatorFeedback: string | undefined;
 
+    // ── Advisor gate ────────────────────────────────────────────
+    const advised = config.mode !== "review" && process.env.HIVEKIT_ADVISOR !== "0";
+    const runContext = `Task: ${config.task}\nPlan: ${plan.planPath}\nRun dir: ${ctx.runDir}`;
+
+    // ── Checkpoint 1: plan ──────────────────────────────────────
+    if (advised) {
+      console.log("\n═══ Advisor: plan check ═══");
+      const a = await advise("plan", config.cwd, runContext);
+      await writeFile(join(ctx.runDir, "advisor-plan.md"), a.note + "\n", "utf-8");
+      console.log(a.ok ? "[advisor] plan checked, proceeds" : `[advisor] OBJECTION\n${a.note}`);
+      if (!a.ok) evaluatorFeedback = `Advisor objection to the plan. Address it while building:\n${a.note}`;
+    }
+
     while (round < config.maxEvalRounds) {
       round++;
 
@@ -509,6 +523,27 @@ async function main(): Promise<RunOutcome> {
       const evaluation = await runEvaluator(ctx, round);
       lastEvaluation = evaluation;
       if (evaluation.status !== "errored") anyJudged = true;
+
+      // ── Checkpoint 3: done (advisor verifies before accepting a PASS) ──
+      if (evaluation.status === "passed" && advised) {
+        console.log("\n═══ Advisor: done check ═══");
+        const a = await advise("done", config.cwd, `${runContext}\nReport: ${join(ctx.runDir, "report.md")}`);
+        await writeFile(join(ctx.runDir, `advisor-done-r${round}.md`), a.note + "\n", "utf-8");
+        if (!a.ok) {
+          console.log(`[advisor] OBJECTION\n${a.note}`);
+          if (round >= config.maxEvalRounds) {
+            return await finalizeRun(ctx, {
+              outcome: "failed",
+              evaluation,
+              roundsRun: round,
+              error: `Advisor objection (no rounds left): ${a.note.split("\n").slice(0, 3).join(" ")}`,
+            });
+          }
+          evaluatorFeedback = `The evaluator passed, but the advisor found skipped or unverified work:\n${a.note}`;
+          continue;
+        }
+        console.log("[advisor] nothing skipped, proceeds");
+      }
 
       // Review mode is one-shot: its evaluator scores the code under review,
       // not hivekit's own work, so there is nothing to iterate on.
@@ -528,12 +563,29 @@ async function main(): Promise<RunOutcome> {
       }
 
       // Not passed — loop back to generator with feedback
+      const previousFeedback = evaluatorFeedback;
       const MAX_FEEDBACK_CHARS = 4000;
       evaluatorFeedback =
         evaluation.feedback && evaluation.feedback.length > MAX_FEEDBACK_CHARS
           ? evaluation.feedback.slice(0, MAX_FEEDBACK_CHARS) +
             "\n\n[…feedback truncated to 4000 chars]"
           : evaluation.feedback;
+
+      // ── Checkpoint 2: stuck (repeated failure → advisor escalation) ──
+      if (advised && round >= 2 && previousFeedback) {
+        const same = await jevYesNo(
+          // Cut each side so the current failure is never truncated away by the 4,000-char cap in maskForJev.
+          `Previous failure:\n${previousFeedback.slice(0, 1900)}\n\nCurrent failure:\n${(evaluation.feedback ?? "").slice(0, 1900)}`,
+          "Is the current failure essentially the same problem as the previous failure?"
+        );
+        console.log(`[jev] same failure twice: ${same === null ? "unsure, escalating" : same}`);
+        if (same !== false) {
+          const a = await advise("stuck", config.cwd, `${runContext}\nLatest evaluator feedback:\n${evaluation.feedback}`);
+          await writeFile(join(ctx.runDir, `advisor-stuck-r${round}.md`), a.note + "\n", "utf-8");
+          evaluatorFeedback += `\n\nAdvisor on the repeated failure:\n${a.note}`;
+        }
+      }
+
       if (round < config.maxEvalRounds) {
         console.log(
           `\nRe-running generator with evaluator feedback (round ${round + 1})...\n`
@@ -588,6 +640,8 @@ function summarizeScores(
     evaluation.scores.length;
   return `Avg ${Math.round(avg)}/100 — ${evaluation.scores.length} criteria`;
 }
+
+export { main };
 
 // Only run main() when this file is the entry point (not when imported for tests)
 const __filename = fileURLToPath(import.meta.url);

@@ -1,7 +1,7 @@
 import { readFile, mkdir, writeFile, rm } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { runAgent, fillTemplate, loadPrinciples } from "./sdk-utils.js";
+import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
 import { treeFingerprint } from "./paths.js";
 import type {
   RunContext,
@@ -80,7 +80,8 @@ async function runReviewGenerators(
     try {
       await runAgent({
         prompt,
-        model: "sonnet",
+        ...TIERS.review,
+        label: `review-${dim}`,
         cwd: config.cwd,
         allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
         permissionMode: "acceptEdits",
@@ -152,7 +153,8 @@ async function runBuildGenerator(
 
   const { durationMs } = await runAgent({
     prompt,
-    model: "opus",
+    ...TIERS.build,
+    label: "generator",
     cwd: config.cwd,
     allowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
     permissionMode: "acceptEdits",
@@ -208,7 +210,8 @@ async function runImproveGenerators(
     try {
       await runAgent({
         prompt,
-        model: "opus",
+        ...TIERS.build,
+        label: `improve-${i + 1}`,
         cwd: config.cwd,
         allowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
         permissionMode: "acceptEdits",
