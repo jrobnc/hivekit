@@ -293,3 +293,22 @@ test("stuck: jev true/null escalates to advisor; jev false skips", async () => {
 
   rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test("--depth quick runs only the done check (no plan or stuck advisor calls)", async () => {
+  setupTmpDir();
+  process.argv = ["node", "index.js", "test task", "--mode", "build", "--depth", "quick", "--cwd", tmpDir];
+  const calls = [];
+  adviseImpl = async (checkpoint) => { calls.push(checkpoint); return { ok: true, note: "OK" }; };
+  evaluatorResults = [
+    { scores: [{ criterion: "test", score: 90 }], status: "passed", reason: "meets_threshold", passed: true, feedback: "", report: "ok" },
+  ];
+  generatorFeedbacks = [];
+
+  await main();
+
+  assert.deepEqual(calls, ["done"], `quick depth should only call the done check, got ${JSON.stringify(calls)}`);
+  const runDir = findRunDir();
+  assert.ok(!existsSync(join(runDir, "advisor-plan.md")), "no plan check at quick depth");
+  assert.ok(existsSync(join(runDir, "advisor-done-r1.md")), "done check still runs at quick depth");
+  rmSync(tmpDir, { recursive: true, force: true });
+});

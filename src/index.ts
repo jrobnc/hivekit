@@ -498,10 +498,13 @@ async function main(): Promise<RunOutcome> {
 
     // ── Advisor gate ────────────────────────────────────────────
     const advised = config.mode !== "review" && process.env.HIVEKIT_ADVISOR !== "0";
+    // --depth quick keeps only the done check (the one that catches a false PASS): on small jobs the
+    // plan and stuck checks cost more than the build itself.
+    const adviseEarly = advised && config.depth !== "quick";
     const runContext = `Task: ${config.task}\nPlan: ${plan.planPath}\nRun dir: ${ctx.runDir}`;
 
     // ── Checkpoint 1: plan ──────────────────────────────────────
-    if (advised) {
+    if (adviseEarly) {
       console.log("\n═══ Advisor: plan check ═══");
       const a = await advise("plan", config.cwd, runContext);
       await writeFile(join(ctx.runDir, "advisor-plan.md"), a.note + "\n", "utf-8");
@@ -572,7 +575,7 @@ async function main(): Promise<RunOutcome> {
           : evaluation.feedback;
 
       // ── Checkpoint 2: stuck (repeated failure → advisor escalation) ──
-      if (advised && round >= 2 && previousFeedback) {
+      if (adviseEarly && round >= 2 && previousFeedback) {
         const same = await jevYesNo(
           // Cut each side so the current failure is never truncated away by the 4,000-char cap in maskForJev.
           `Previous failure:\n${previousFeedback.slice(0, 1900)}\n\nCurrent failure:\n${(evaluation.feedback ?? "").slice(0, 1900)}`,
