@@ -15,7 +15,7 @@
 write intent · verify by tiers · reconcile to green · Planner → Generator → Evaluator · Claude Max OAuth · Apache-2.0
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
-&nbsp;![Tests](https://img.shields.io/badge/tests-165%20passing-brightgreen)
+&nbsp;![Tests](https://img.shields.io/badge/tests-218%20passing-brightgreen)
 &nbsp;![Built on](https://img.shields.io/badge/built%20on-Claude%20Agent%20SDK-d97757)
 &nbsp;![Status](https://img.shields.io/badge/status-alpha-orange)
 
@@ -176,7 +176,7 @@ npm install
 npm run build
 ```
 
-Requires **Node.js 20+** and Claude Code authenticated — a **Claude Max subscription works (no API key needed)**, or set `ANTHROPIC_API_KEY` for API billing.
+Requires **Node.js 18+** and Claude Code authenticated — a **Claude Max subscription works (no API key needed)**, or set `ANTHROPIC_API_KEY` for API billing.
 
 <details>
 <summary><b>macOS auth note (Claude Max via subprocess)</b></summary>
@@ -254,7 +254,7 @@ bin/hivekit              strips ANTHROPIC_API_KEY, then runs dist/index.js   (Cl
        └─ src/advisor.ts    Fable advisor at three checkpoints (plan, stuck, done); Jev yes/no fork gate
   shared:
        ├─ src/sdk-utils.ts  runAgent() wraps the Agent SDK; loadPrinciples() injects the guardrails;
-       │                    TIERS maps roles to models; appendLedger() logs every call to ~/.cache/hivekit/ledger.jsonl
+       │                    TIERS maps roles to models; runAgent() appends every call to ~/.cache/hivekit/ledger.jsonl
        ├─ src/prompts/*.md  9 phase templates ({planner,generator,evaluator}-{review,build,improve})
        └─ src/prompts/principles.md   the operating guardrails injected into every agent
 ```

@@ -23,6 +23,13 @@ export async function loadPrinciples(): Promise<string> {
   return principlesCache;
 }
 
+/** A finite number > 0 from an env value, else undefined (so a typo never disables a cap via NaN). */
+export function positiveNumber(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 export type Effort = "low" | "medium" | "high" | "max";
 
 /**
@@ -73,9 +80,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     maxTurns: opts.maxTurns ?? 30,
     effort: opts.effort,
     // ponytail: one optional per-agent cap; per-run caps when the ledger shows a need
-    maxBudgetUsd: process.env.HIVEKIT_MAX_USD_PER_AGENT
-      ? Number(process.env.HIVEKIT_MAX_USD_PER_AGENT)
-      : undefined,
+    maxBudgetUsd: positiveNumber(process.env.HIVEKIT_MAX_USD_PER_AGENT),
   };
 
   let result = "";
@@ -116,21 +121,26 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     console.log(`  [agent] ${messageCount} messages, ${Math.round(durationMs / 1000)}s, $${totalCostUsd.toFixed(2)}`);
   }
 
-  await mkdir(dirname(LEDGER), { recursive: true });
-  await appendFile(
-    LEDGER,
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      label: opts.label ?? "agent",
-      model: sdkOpts.model,
-      effort: opts.effort ?? null,
-      usd: totalCostUsd,
-      ms: durationMs,
-      cwd: opts.cwd,
-      error: isError,
-    }) + "\n",
-    "utf-8"
-  );
+  // The ledger is bookkeeping: an unwritable ~/.cache must never crash a run before result.json exists.
+  try {
+    await mkdir(dirname(LEDGER), { recursive: true });
+    await appendFile(
+      LEDGER,
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        label: opts.label ?? "agent",
+        model: sdkOpts.model,
+        effort: opts.effort ?? null,
+        usd: totalCostUsd,
+        ms: durationMs,
+        cwd: opts.cwd,
+        error: isError,
+      }) + "\n",
+      "utf-8"
+    );
+  } catch (err) {
+    console.warn(`  [ledger] not written (${err instanceof Error ? err.message : err})`);
+  }
 
   if (isError) {
     throw new Error(`Agent failed: ${result}`);

@@ -1,7 +1,7 @@
 import { readFile, appendFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
-import { runAgent, TIERS, LEDGER } from "./sdk-utils.js";
+import { runAgent, TIERS, LEDGER, positiveNumber } from "./sdk-utils.js";
 
 // ── Jev: cheap yes/no forks ─────────────────────────────────────────
 // TypeSafe System One answers structured questions in well under a second at
@@ -14,7 +14,7 @@ import { runAgent, TIERS, LEDGER } from "./sdk-utils.js";
 const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 const JEV_MODEL = process.env.JEV_MODEL ?? "jev-1.13.0"; // pinned: jev-latest drifts
 const JEV_USD_PER_INPUT_TOKEN = 0.042 / 1_000_000; // output tokens are free
-const JEV_BUDGET_USD = Number(process.env.HIVEKIT_JEV_BUDGET ?? 25);
+const JEV_BUDGET_USD = positiveNumber(process.env.HIVEKIT_JEV_BUDGET) ?? 25; // invalid -> default, never NaN
 const JEV_MAX_CHARS = 4000;
 
 /** Masks email addresses and phone numbers and caps length; comparing failures never needs them. */
