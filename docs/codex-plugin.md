@@ -12,7 +12,9 @@ Before a Codex user can use the plugin, they need:
 
 1. **`hivekit` CLI** — install from GitHub and put it on your PATH:
    ```sh
-   git clone https://github.com/jrobnc/hivekit && cd hivekit && npm install && npm run build && npm link
+   git clone https://github.com/jrobnc/hivekit && cd hivekit
+   npm ci && npm run build
+   npm link        # optional: puts `hivekit` on PATH; otherwise run ./bin/hivekit
    ```
    Do not install the npm package named "hivekit": that name belongs to an unrelated third-party project.
 
@@ -34,8 +36,9 @@ Before a Codex user can use the plugin, they need:
 
 1. Clone the repo and install:
    ```sh
-   git clone https://github.com/jrobnc/hivekit.git
-   cd hivekit && npm install && npm run build
+   git clone https://github.com/jrobnc/hivekit && cd hivekit
+   npm ci && npm run build
+   npm link        # optional: puts `hivekit` on PATH; otherwise run ./bin/hivekit
    ```
 
 2. Run the validation test:
@@ -48,73 +51,31 @@ Before a Codex user can use the plugin, they need:
    npm test
    ```
 
-4. Manual test in Codex: point your Codex environment at the `plugins/hivekit/` directory
-   and verify that the four skills appear and respond to test prompts.
+4. Add the marketplace from the clone root: `codex plugin marketplace add .` (or the absolute
+   path to the clone), then `codex plugin marketplace list` to confirm `hivekit` is listed.
+   Install with `codex plugin add hivekit@hivekit` (or from the Plugins Directory in the ChatGPT
+   desktop app, then restart it), and
+   verify that the four skills appear and respond to the prompts in [listing.md](listing.md).
 
 ## Plugin Manifest Format
 
-The `plugin.json` manifest follows the [Codex plugin skill spec](https://developers.openai.com/plugins/build/skills.md). Required fields: `name`, `version`, `description`, `skills`. Optional: `apps`.
+- The root manifest is `plugins/hivekit/plugin.json` (no `.codex-plugin/` overlay). Marketplace entry: `.agents/plugins/marketplace.json`.
+- Portable keys: `$schema`, `name`, `version`, `description`, `author`, `homepage`, `repository`, `license`, `keywords`, `skills`, `extensions`.
+- Listing metadata lives in `extensions["com.openai"].interface`.
+- Spec: https://developers.openai.com/plugins/build/plugins and https://developers.openai.com/plugins/deploy/submission.
+- The plugin is skills-only: no apps, hooks or MCP servers. An MCP server can't be added later, so that would need a new plugin.
 
-Dashboard listing metadata (`displayName`, `shortDescription`, `category`) belongs in the submission form (see the [OpenAI plugin submission docs](https://developers.openai.com/plugins/deploy/submission.md)), not in `plugin.json`.
-
-## Listing Metadata (Dashboard)
-
-These values are for the OpenAI plugin submission form (per the [OpenAI plugin submission docs](https://developers.openai.com/plugins/deploy/submission.md)), not the manifest:
-
-| Field | Value | Limit |
-|---|---|---|
-| `name` | `hivekit` | ≤ 64 chars (7) |
-| `displayName` | `HiveKit` | ≤ 30 chars (7) |
-| `shortDescription` | `Intent-driven build & review` | ≤ 30 chars (29) |
-| `category` | `developer-tools` | — |
-
-**`longDescription`** (for the listing page):
-
-> Run HiveKit's Planner, Generator, and Evaluator loop from Codex. Declare what done
-> means in a HIVE.md intent file, then build, review, or improve code until the success
-> criteria hold. HiveKit runs locally in the repo — no data leaves your machine except
-> Anthropic API calls. Requires the hivekit CLI and an ANTHROPIC_API_KEY.
-
-## Test Prompts
-
-### Positive (should trigger a skill)
-
-1. "Review this codebase for bugs and code quality issues"
-2. "Build user authentication with JWT"
-3. "Fix the issues from the last review"
-4. "Help me write a HIVE.md for adding a payment system"
-5. "Run a deep review of the API layer"
-
-### Negative (should NOT trigger a skill)
-
-1. "What's the weather in San Francisco?"
-2. "Write a haiku about programming"
-3. "Explain how TCP/IP works"
-
-## Submission Checklist
-
-- [ ] **Website URL** — Public URL for HiveKit (e.g., GitHub repo or docs site)
-- [ ] **Support URL** — Where users can get help (e.g., GitHub Issues)
-- [ ] **Privacy policy URL** — Required by OpenAI
-- [ ] **Terms of service URL** — Required by OpenAI
-- [ ] **Verified developer** — Complete OpenAI's developer verification
-- [ ] **Demo video** — Short video showing the plugin in action in Codex
-- [ ] **Reviewer test account** — Provide OpenAI reviewers with:
-  - A valid `ANTHROPIC_API_KEY` (test-scoped, with spending limits)
-  - A sample repository with a `HIVE.md` file for testing builds
-  - Clear setup instructions (install hivekit, set env vars, run a test prompt)
-  - No MFA on the test account
-- [ ] **Plugin validation passes** — `node --test test/plugin-manifest.test.mjs` exits 0
-- [ ] **Full test suite passes** — `npm test` exits 0
+Listing metadata, test prompts, and the submission checklist live in [listing.md](listing.md).
 
 ## OpenAI Guidelines Compliance
 
 - **No promotional or comparative language** — Descriptions state what the tool does,
   not that it's "the best" or "better than X".
 - **General audiences (13+)** — No age-restricted content.
-- **Minimal data collection** — HiveKit runs locally. The only external calls are to the
-  Anthropic API (using the user's own key). No telemetry, no analytics, no data stored
-  on third-party servers.
+- **Minimal data collection** — HiveKit runs locally. External calls go to the
+  Anthropic API (using the user's own key). The one exception is the opt-in
+  `HIVEKIT_JEV=1` gate (off by default), which sends masked evaluator text to
+  `api.typesafe.ai`. No telemetry, no analytics, nothing sent to the HiveKit authors.
 - **No authentication server** — Skills instruct the agent to run local CLI commands.
   No OAuth flow, no API keys managed by the plugin itself.
 - **Accurate skill descriptions** — Each SKILL.md describes exactly what the command does,
