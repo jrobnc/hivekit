@@ -1,6 +1,41 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "hivekit",
   "version": "1.0.0",
   "description": "Run HiveKit's Planner, Generator, and Evaluator loop from Codex. Declare what done means in a HIVE.md intent file, then build, review, or improve code until the success criteria hold. Requires the hivekit CLI and an ANTHROPIC_API_KEY.",
-  "skills": "./skills/"
+  "author": {
+    "name": "Jody Roberts",
+    "url": "https://github.com/jrobnc"
+  },
+  "homepage": "https://github.com/jrobnc/hivekit",
+  "repository": "https://github.com/jrobnc/hivekit",
+  "license": "Apache-2.0",
+  "keywords": ["code-review", "agents", "intent", "hive-md"],
+  "skills": "./skills/",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "HiveKit",
+        "shortDescription": "Intent-driven build & review",
+        "longDescription": "Run HiveKit's Planner, Generator, and Evaluator loop from Codex. Declare what done means in a HIVE.md intent file, then build, review, or improve code until the success criteria hold. HiveKit runs locally in the repo and sends no data to its authors. Model calls go to Anthropic with your own key; the optional, off-by-default Jev gate (`HIVEKIT_JEV=1`) sends masked text to api.typesafe.ai. Requires the hivekit CLI and an ANTHROPIC_API_KEY.",
+        "developerName": "Jody Roberts",
+        "category": "Developer Tools",
+        "capabilities": [
+          "Runs the hivekit CLI locally in your repository",
+          "Reads and edits files in the repository",
+          "Calls the Anthropic API with your own API key"
+        ],
+        "websiteURL": "https://github.com/jrobnc/hivekit",
+        "privacyPolicyURL": "https://github.com/jrobnc/hivekit/blob/main/docs/privacy.md",
+        "termsOfServiceURL": "https://github.com/jrobnc/hivekit/blob/main/docs/terms.md",
+        "defaultPrompt": [
+          "Review this repo with HiveKit",
+          "Help me write a HIVE.md for this feature",
+          "Fix the findings from the last HiveKit review"
+        ],
+        "composerIcon": "./assets/logo.svg",
+        "logo": "./assets/logo.svg"
+      }
+    }
+  }
 }

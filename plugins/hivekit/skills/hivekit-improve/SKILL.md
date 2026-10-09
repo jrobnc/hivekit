@@ -71,7 +71,15 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 - Requires macOS or Linux (the launcher is a bash script).
 - `ANTHROPIC_API_KEY` must be set (Codex does not have Claude Code OAuth).
 - `HARNESS_ALLOW_API_KEY=1` must be set.
-- The `hivekit` CLI must be installed from GitHub (`git clone https://github.com/jrobnc/hivekit && cd hivekit && npm install && npm run build && npm link`). Do not install the npm package named "hivekit": that name belongs to an unrelated third-party project.
+- The `hivekit` CLI must be installed from GitHub:
+
+  ```sh
+  git clone https://github.com/jrobnc/hivekit && cd hivekit
+  npm ci && npm run build
+  npm link        # optional: puts `hivekit` on PATH; otherwise run ./bin/hivekit
+  ```
+
+  Do not install the npm package named "hivekit": that name belongs to an unrelated third-party project.
 
 ## Safety rules
 

@@ -53,7 +53,7 @@ Same shape as Terraform or a Kubernetes reconcile loop: declare the desired stat
 
 ```bash
 git clone https://github.com/jrobnc/hivekit && cd hivekit
-npm install && npm run build
+npm ci && npm run build
 
 # end-to-end example: a HIVE.md that builds a slugify util with tests
 ./bin/hivekit --cwd examples/hello-hive
@@ -173,7 +173,7 @@ A quick test — if you answer "no" to all three, do it by hand:
 ## Install
 
 ```bash
-npm install
+npm ci
 npm run build
 ```
 
@@ -193,6 +193,40 @@ source ~/.zshenv
 
 `~/.zshenv` is sourced by every zsh invocation, so the token propagates to the subprocess and refreshes each shell start.
 </details>
+
+## Use from Codex
+
+1. **Install the CLI** (not the npm package named `hivekit`, which is an unrelated project):
+
+   ```sh
+   git clone https://github.com/jrobnc/hivekit && cd hivekit
+   npm ci && npm run build
+   npm link        # optional: puts `hivekit` on PATH; otherwise run ./bin/hivekit
+   ```
+
+2. **Add the marketplace.** From the clone root run `codex plugin marketplace add .` (or pass the absolute path to the clone), then `codex plugin marketplace list` to confirm `hivekit` is listed.
+3. **Install the plugin.** Run `codex plugin add hivekit@hivekit` (then `codex plugin list` shows it installed and enabled), or install HiveKit from the Plugins Directory in the ChatGPT desktop app and restart the app.
+4. **Set your key.** Codex has no Claude Code OAuth, so use an API key, and set the second variable because the launcher strips `ANTHROPIC_API_KEY` unless it is set:
+
+   ```sh
+   export ANTHROPIC_API_KEY="sk-ant-..."
+   export HARNESS_ALLOW_API_KEY=1
+   ```
+
+5. **Run it.** Ask Codex "Review this repo with HiveKit", or run directly: `hivekit "review this repo" --mode review --cwd .`
+
+## Cost and privacy
+
+- HiveKit runs locally. There is no hosted server.
+- It uses your own Anthropic key, and Anthropic bills you directly.
+- Nothing is sent to the HiveKit authors. There is no telemetry or analytics.
+- A cost ledger is written to `~/.cache/hivekit/ledger.jsonl` (override with `HIVEKIT_LEDGER`).
+- `HIVEKIT_MAX_USD_PER_AGENT` caps spend per agent.
+- `HIVEKIT_ADVISOR=0` disables advisor calls.
+- `HIVEKIT_JEV` is off by default. With `HIVEKIT_JEV=1` (and a key), masked evaluator text is sent to a third party (`api.typesafe.ai`).
+- Full policy: [docs/privacy.md](docs/privacy.md).
+
+See the [environment variable table](#environment-variables) for details.
 
 ## Billing — Claude Max by default
 

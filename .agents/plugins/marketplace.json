@@ -1,0 +1,17 @@
+{
+  "name": "hivekit",
+  "interface": {
+    "displayName": "HiveKit"
+  },
+  "plugins": [
+    {
+      "name": "hivekit",
+      "source": "./plugins/hivekit",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
