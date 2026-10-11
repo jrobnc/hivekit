@@ -2,6 +2,7 @@ import { readFile, mkdir, writeFile, rm } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
+import { resolveTurnLimits } from "./turns.js";
 import { treeFingerprint } from "./paths.js";
 import type {
   RunContext,
@@ -85,7 +86,8 @@ async function runReviewGenerators(
         cwd: config.cwd,
         allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
         permissionMode: "acceptEdits",
-        maxTurns: config.maxTurns ?? 40,
+        maxTurns: resolveTurnLimits(config).review,
+        phase: "review",
       });
       console.log(`  [${dim}] complete`);
     } catch (err) {
@@ -158,7 +160,8 @@ async function runBuildGenerator(
     cwd: config.cwd,
     allowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
     permissionMode: "acceptEdits",
-    maxTurns: config.maxTurns ?? 100,
+    maxTurns: resolveTurnLimits(config).generator,
+    phase: "generator",
     onProgress: () => process.stdout.write("."),
   });
 
@@ -215,7 +218,8 @@ async function runImproveGenerators(
         cwd: config.cwd,
         allowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
         permissionMode: "acceptEdits",
-        maxTurns: config.maxTurns ?? 60,
+        maxTurns: resolveTurnLimits(config).generator,
+        phase: "generator",
       });
       console.log(`  [improve-${i + 1}] complete`);
     } catch (err) {

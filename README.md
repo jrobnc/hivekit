@@ -216,7 +216,21 @@ A top-of-file `delete process.env.ANTHROPIC_API_KEY` would be too late — ES mo
 | `--cwd` | path | cwd | Target project directory |
 | `--sprint` | integer | none | Scope a build to one sprint of the plan |
 | `--plan` | file path | none | Reuse an existing plan (skip the planner) |
-| `--max-turns` | integer | 100 / 60 / 40 | Max turns per agent |
+| `--max-turns` | integer | see Turn limits | Max turns for every phase |
+
+### Turn limits
+
+| Phase | Flag | Env | Default |
+|-------|------|-----|---------|
+| planner | `--planner-turns` | `HIVEKIT_PLANNER_TURNS` | 60 + 1 per file path in the spec, max 150 |
+| generator | `--generator-turns` | `HIVEKIT_GENERATOR_TURNS` | 100 build / 60 improve |
+| evaluator | `--evaluator-turns` | `HIVEKIT_EVALUATOR_TURNS` | 40 |
+| review agents | `--review-turns` | `HIVEKIT_REVIEW_TURNS` | 40 |
+| advisor | none | none | fixed 15 |
+
+Precedence: `--<phase>-turns` > `--max-turns` > `HIVEKIT_<PHASE>_TURNS` > `HIVEKIT_MAX_TURNS` > default. Explicit values are used as-is (no 150 cap).
+
+A cap-hit names the phase and the flag to raise. The limits are shown in the report header and recorded per agent as `maxTurns` in the ledger.
 
 ## Environment variables
 
@@ -228,6 +242,7 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `HARNESS_ALLOW_API_KEY` | any non-empty value | unset | Opts out of that strip for one run: `ANTHROPIC_API_KEY` is passed through (metered API billing) and the launcher prints a warning to stderr. |
 | `HARNESS_DEBUG` | any non-empty value | unset | Per-message agent tracing — logs `[agent] msg#N type=…` to stderr for every SDK message, in every phase. |
 | `HIVEKIT_ADVISOR` | `0` to disable | enabled | Controls the Fable advisor checkpoints (plan, stuck, done). Set to `0` to skip all advisor and Jev calls. |
+| `HIVEKIT_*_TURNS`, `HIVEKIT_MAX_TURNS` | integer | unset | Per-phase and global turn caps; see [Turn limits](#turn-limits). |
 | `HIVEKIT_LEDGER` | file path | `~/.cache/hivekit/ledger.jsonl` | Where the cost ledger is written. `npm test` points it at a throwaway file so tests never touch your real ledger. |
 | `HIVEKIT_MAX_USD_PER_AGENT` | decimal | unset | Per-agent cost cap passed to the Agent SDK as `maxBudgetUsd`. |
 | `HIVEKIT_JEV` | `1` to enable | off | Opt-in for the Jev gate. Only with `HIVEKIT_JEV=1` (and a key) is masked evaluator feedback (each failure cut to 1,900 chars, total 4,000; emails/phones replaced) sent to `api.typesafe.ai`. |

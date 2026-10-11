@@ -23,10 +23,12 @@ import {
   indexStatusFor,
   isSuccessOutcome,
 } from "./outcome.js";
+import { resolveTurnLimits, describeTurnLimits } from "./turns.js";
 import type {
   HarnessConfig,
   Mode,
   Depth,
+  TurnPhase,
   RunContext,
   IntentDoc,
   EvaluationResult,
@@ -66,6 +68,7 @@ function parseArgs(argv: string[]): HarnessConfig {
   let intentFile: string | undefined;
   let emitYaml = false;
   let maxTurns: number | undefined;
+  const turns: Partial<Record<TurnPhase, number>> = {};
   let explicitMode = false;
   const taskParts: string[] = [];
 
@@ -76,6 +79,14 @@ function parseArgs(argv: string[]): HarnessConfig {
         process.exit(1);
       }
       return args[++i];
+    };
+    const turnsArg = (flag: string): number => {
+      const n = parseInt(nextArg(flag), 10);
+      if (isNaN(n) || n < 1) {
+        console.error(`Error: ${flag} requires a numeric value`);
+        process.exit(1);
+      }
+      return n;
     };
 
     switch (args[i]) {
@@ -125,14 +136,21 @@ function parseArgs(argv: string[]): HarnessConfig {
       case "--yaml":
         emitYaml = true;
         break;
-      case "--max-turns": {
-        maxTurns = parseInt(nextArg("--max-turns"), 10);
-        if (isNaN(maxTurns)) {
-          console.error("Error: --max-turns requires a numeric value");
-          process.exit(1);
-        }
+      case "--max-turns":
+        maxTurns = turnsArg("--max-turns");
         break;
-      }
+      case "--planner-turns":
+        turns.planner = turnsArg("--planner-turns");
+        break;
+      case "--generator-turns":
+        turns.generator = turnsArg("--generator-turns");
+        break;
+      case "--evaluator-turns":
+        turns.evaluator = turnsArg("--evaluator-turns");
+        break;
+      case "--review-turns":
+        turns.review = turnsArg("--review-turns");
+        break;
       case "--help":
       case "-h":
         printUsage();
@@ -176,6 +194,7 @@ function parseArgs(argv: string[]): HarnessConfig {
     intentFile,
     emitYaml,
     maxTurns,
+    turns,
     explicitMode,
   };
 }
@@ -245,7 +264,11 @@ Options:
   --plan <path>                    Reuse an existing plan file (skip planner)
   --intent <path>                  Drive the run from a HIVE.md / intent.md (intent-as-source)
   --yaml                           Also emit a structured intent.yaml alongside the markdown (opt-in)
-  --max-turns <N>                  Max turns per agent (default: 100 build, 60 improve, 40 review)
+  --max-turns <N>                  Max turns for every phase (overridden per phase below)
+  --planner-turns <N>              Planner turns (default: 60 + 1/spec path, max 150)
+  --generator-turns <N>            Generator turns (default: 100 build, 60 improve)
+  --evaluator-turns <N>            Evaluator turns (default: 40)
+  --review-turns <N>               Review agent turns (default: 40)
   -h, --help                       Show this help
 
 Examples:
@@ -368,6 +391,7 @@ async function finalizeRun(
     scores: args.evaluation?.scores,
     reportPath,
     error: args.error,
+    turnLimits: resolveTurnLimits(config),
   });
 
   // Machine-readable result first: if writing the human report fails, callers
@@ -452,6 +476,7 @@ async function main(): Promise<RunOutcome> {
   const ctx = await initRun(config);
   ctx.intent = intent;
   console.log(`Run ID: ${ctx.runId}`);
+  console.log(`Turn limits: ${describeTurnLimits(resolveTurnLimits(config), config.mode)}`);
   console.log(`Artifacts: ${ctx.runDir}/\n`);
 
   // Opt-in structured view: emit the compiled intent as YAML for downstream tooling.

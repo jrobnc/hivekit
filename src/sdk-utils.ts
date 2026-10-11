@@ -4,6 +4,8 @@ import { readFile, appendFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { turnCapMessage } from "./turns.js";
+import type { TurnPhase } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -57,6 +59,10 @@ export interface AgentOptions {
   allowedTools?: string[];
   permissionMode?: PermissionMode;
   maxTurns?: number;
+  /** Phase name; when set, a max-turns stop throws a named cap-hit error */
+  phase?: TurnPhase;
+  /** Spec path count, for the planner cap-hit message */
+  specPaths?: number;
   /** Called periodically with progress indicators */
   onProgress?: (indicator: string) => void;
 }
@@ -89,31 +95,38 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   let durationMs = 0;
   let totalCostUsd = 0;
   let isError = false;
+  let subtype: string | undefined;
+  let thrown: unknown;
 
   let messageCount = 0;
-  for await (const message of query({ prompt: opts.prompt, options: sdkOpts })) {
-    messageCount++;
+  try {
+    for await (const message of query({ prompt: opts.prompt, options: sdkOpts })) {
+      messageCount++;
 
-    // Log message types for debugging
-    if (process.env.HARNESS_DEBUG) {
-      const msg = message as Record<string, unknown>;
-      console.error(`  [agent] msg#${messageCount} type=${msg.type}`);
-    }
+      // Log message types for debugging
+      if (process.env.HARNESS_DEBUG) {
+        const msg = message as Record<string, unknown>;
+        console.error(`  [agent] msg#${messageCount} type=${msg.type}`);
+      }
 
-    // Progress indicator for assistant messages
-    if (message.type === "assistant" && opts.onProgress) {
-      opts.onProgress(".");
-    }
+      // Progress indicator for assistant messages
+      if (message.type === "assistant" && opts.onProgress) {
+        opts.onProgress(".");
+      }
 
-    // Capture the final result
-    if (message.type === "result") {
-      const msg = message as Record<string, unknown>;
-      result = (msg.result as string) ?? "";
-      sessionId = (msg.session_id as string) ?? "";
-      durationMs = (msg.duration_ms as number) ?? 0;
-      totalCostUsd = (msg.total_cost_usd as number) ?? 0;
-      isError = (msg.is_error as boolean) ?? false;
+      // Capture the final result
+      if (message.type === "result") {
+        const msg = message as Record<string, unknown>;
+        result = (msg.result as string) ?? "";
+        sessionId = (msg.session_id as string) ?? "";
+        durationMs = (msg.duration_ms as number) ?? 0;
+        totalCostUsd = (msg.total_cost_usd as number) ?? 0;
+        isError = (msg.is_error as boolean) ?? false;
+        subtype = msg.subtype as string | undefined;
+      }
     }
+  } catch (err) {
+    thrown = err;
   }
 
   if (messageCount === 0) {
@@ -135,7 +148,8 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
         usd: totalCostUsd,
         ms: durationMs,
         cwd: opts.cwd,
-        error: isError,
+        maxTurns: sdkOpts.maxTurns,
+        error: isError || thrown !== undefined,
       }) + "\n",
       "utf-8"
     );
@@ -143,6 +157,12 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     console.warn(`  [ledger] not written (${err instanceof Error ? err.message : err})`);
   }
 
+  const thrownMsg = thrown === undefined ? undefined : (thrown as Error)?.message ?? String(thrown);
+  const capHit = subtype === "error_max_turns" || /maximum number of turns/i.test(thrownMsg ?? (isError ? result : ""));
+  if (capHit && opts.phase) {
+    throw new Error(turnCapMessage(opts.phase, sdkOpts.maxTurns!, opts.phase === "planner" ? opts.specPaths : undefined));
+  }
+  if (thrown !== undefined) throw thrown;
   if (isError) {
     throw new Error(`Agent failed: ${result}`);
   }

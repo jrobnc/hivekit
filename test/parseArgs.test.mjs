@@ -69,3 +69,9 @@ test("--help exits 0 (valid args baseline)", () => {
   const { code } = run(["--help"]);
   assert.equal(code, 0);
 });
+
+test("--planner-turns abc exits non-zero with helpful error", () => {
+  const { code, stderr } = run(["--planner-turns", "abc"]);
+  assert.equal(code, 1);
+  assert.match(stderr || "", /--planner-turns requires a numeric value/);
+});

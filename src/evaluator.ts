@@ -2,6 +2,7 @@ import { readFile, writeFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
+import { resolveTurnLimits } from "./turns.js";
 import { formatCriteriaForEvaluator } from "./intent.js";
 import type { RunContext, EvaluationResult, Mode, CriterionScore } from "./types.js";
 
@@ -327,7 +328,8 @@ export async function runEvaluator(
     cwd: config.cwd,
     allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
     permissionMode: "acceptEdits",
-    maxTurns: config.maxTurns ?? 40,
+    maxTurns: resolveTurnLimits(config).evaluator,
+    phase: "evaluator",
     onProgress: () => process.stdout.write("."),
   });
 
