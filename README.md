@@ -202,7 +202,7 @@ hivekit routes through your Claude Max subscription via OAuth. To stop a stray `
 exec env -u ANTHROPIC_API_KEY node dist/index.js "$@"   # bin/hivekit
 ```
 
-A top-of-file `delete process.env.ANTHROPIC_API_KEY` would be too late — ES modules are hoisted, so the SDK can resolve credentials before any statement in `src/index.ts` runs. **Invoke the wrapper** (`./bin/hivekit`), not `node dist/index.js`. To deliberately bill API for a run, set `HARNESS_ALLOW_API_KEY=1`.
+A top-of-file `delete process.env.ANTHROPIC_API_KEY` would be too late — ES modules are hoisted, so the SDK can resolve credentials before any statement in `src/index.ts` runs. **Invoke the wrapper** (`./bin/hivekit`), not `node dist/index.js`. To deliberately bill API for a run, set `HARNESS_ALLOW_API_KEY=1`. If no OAuth token resolves (Keychain empty or locked, `CLAUDE_CODE_OAUTH_TOKEN` unset), the launcher exits 3 with a stderr message instead of starting a run.
 
 ## CLI flags
 
@@ -241,6 +241,8 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `ANTHROPIC_API_KEY` | API key | unset | Stripped from the environment by the launcher **before Node starts**, so a stray key can't silently switch the run to metered API billing. Reaches the Agent SDK only if `HARNESS_ALLOW_API_KEY` is set. |
 | `HARNESS_ALLOW_API_KEY` | any non-empty value | unset | Opts out of that strip for one run: `ANTHROPIC_API_KEY` is passed through (metered API billing) and the launcher prints a warning to stderr. |
 | `HARNESS_DEBUG` | any non-empty value | unset | Per-message agent tracing — logs `[agent] msg#N type=…` to stderr for every SDK message, in every phase. |
+| `HIVEKIT_ALLOW_NO_TOKEN` | any non-empty value | unset | Skips the launcher's no-OAuth-token check (tests/CI only). |
+| `HIVEKIT_LANE` | string | `""` | Written to every ledger line as `lane`, so spend can be grouped. |
 | `HIVEKIT_ADVISOR` | `0` to disable | enabled | Controls the Fable advisor checkpoints (plan, stuck, done). Set to `0` to skip all advisor and Jev calls. |
 | `HIVEKIT_*_TURNS`, `HIVEKIT_MAX_TURNS` | integer | unset | Per-phase and global turn caps; see [Turn limits](#turn-limits). |
 | `HIVEKIT_LEDGER` | file path | `~/.cache/hivekit/ledger.jsonl` | Where the cost ledger is written. `npm test` points it at a throwaway file so tests never touch your real ledger. |
@@ -253,7 +255,7 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 
 `CLAUDE_CODE_OAUTH_TOKEN` is deliberately left untouched — it is the Claude Max credential that subprocess authenticates with.
 
-Every agent call is logged to `~/.cache/hivekit/ledger.jsonl` (model, tokens, cost estimate, timestamp) for cost tracking and auditability.
+Every agent call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, model, effort, usd, ms, cwd, maxTurns, error, runId, phase, turns, usage{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}, lane`) for cost tracking and auditability.
 
 ## Under the hood — the implementation path
 
@@ -311,7 +313,9 @@ disk, or from prose an agent wrote into a report.
 | 1    | `crashed`              | hivekit or an agent errored; run aborted              |
 | 2    | `failed`               | Evaluator judged the work and rejected it             |
 | 3    | `max_rounds_exhausted` | Rounds ran out with no evaluator PASS                 |
-| 4    | `errored`              | Evaluator produced no usable verdict (nothing verified) |
+| 4    | `errored`              | Evaluator produced no usable verdict (nothing verified), or a review dimension FAILED-TO-REVIEW |
+
+The launcher's no-token exit 3 happens before Node starts: it prints a stderr message and writes no `result.json`, which is how it differs from `max_rounds_exhausted`.
 
 **`result.json`**
 

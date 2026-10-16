@@ -3,7 +3,10 @@
 // Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkImproveFailures } from "../dist/generator.js";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { checkImproveFailures, readFindings } from "../dist/generator.js";
 
 test("checkImproveFailures — no failures does not throw", () => {
   const merged = [
@@ -55,4 +58,27 @@ test("checkImproveFailures — majority without notes but a changed working tree
 test("checkImproveFailures — majority without notes and an unchanged tree still throws", () => {
   const merged = ["# Agent 1\n\n_No progress recorded._", "# Agent 2\n\n_No progress recorded._", "# Agent 3\n\nDid X"];
   assert.throws(() => checkImproveFailures(merged, 3, false), /working tree is unchanged/);
+});
+
+test("readFindings — missing file is FAILED-TO-REVIEW, not a clean zero", async () => {
+  const out = await readFindings("/nonexistent/findings.json", "security", "r1");
+  assert.deepEqual(out.findings, []);
+  assert.match(out.error, /unreadable/);
+});
+
+test("readFindings — invalid JSON sets error; valid file does not", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hivekit-findings-"));
+  try {
+    const bad = join(dir, "bad.json");
+    writeFileSync(bad, "{not json");
+    assert.ok((await readFindings(bad, "security", "r1")).error);
+
+    const good = join(dir, "good.json");
+    writeFileSync(good, JSON.stringify({ findings: [{ title: "x" }] }));
+    const out = await readFindings(good, "security", "r1");
+    assert.equal(out.findings.length, 1);
+    assert.equal(out.error, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

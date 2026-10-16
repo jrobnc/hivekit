@@ -126,11 +126,14 @@ test("bin/hivekit still strips ANTHROPIC_API_KEY (existing behavior, no regressi
   chmodSync(fakeNode, 0o755);
 
   try {
+    // Drop the developer's own override so the test doesn't depend on their shell.
+    const { HARNESS_ALLOW_API_KEY: _ignored, ...cleanEnv } = process.env;
     const output = execFileSync("bash", [hivekitBin, "--help"], {
       env: {
-        ...process.env,
+        ...cleanEnv,
         PATH: `${fakeNodeDir}:${process.env.PATH}`,
         ANTHROPIC_API_KEY: "sk-should-not-leak",
+        HIVEKIT_ALLOW_NO_TOKEN: "1",
       },
       encoding: "utf-8",
     });
@@ -142,4 +145,47 @@ test("bin/hivekit still strips ANTHROPIC_API_KEY (existing behavior, no regressi
   } finally {
     rmSync(fakeNodeDir, { recursive: true, force: true });
   }
+});
+
+// --- fail-fast when no OAuth token resolves ---------------------------------
+
+function runLauncherNoToken(extraEnv) {
+  const dir = mkdtempSync(join(tmpdir(), "hivekit-fake-node-"));
+  writeFileSync(join(dir, "node"), "#!/usr/bin/env bash\nenv\n");
+  // Fake `security` so a developer Mac's real Keychain can't supply a token.
+  writeFileSync(join(dir, "security"), "#!/usr/bin/env bash\nexit 1\n");
+  chmodSync(join(dir, "node"), 0o755);
+  chmodSync(join(dir, "security"), 0o755);
+  const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete env.HARNESS_ALLOW_API_KEY;
+  delete env.HIVEKIT_ALLOW_NO_TOKEN;
+  try {
+    return spawnSync("bash", [hivekitBin, "--help"], {
+      env: { ...env, ...extraEnv },
+      encoding: "utf-8",
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("bin/hivekit exits 3 with a clear message when no OAuth token resolves", () => {
+  const proc = runLauncherNoToken({});
+  assert.equal(proc.status, 3, `stderr: ${proc.stderr}`);
+  assert.match(proc.stderr, /claude \/login/);
+  assert.match(proc.stderr, /CLAUDE_CODE_OAUTH_TOKEN/);
+  assert.ok(!proc.stdout.includes("PATH="), "node must not have been exec'd");
+});
+
+test("bin/hivekit proceeds when CLAUDE_CODE_OAUTH_TOKEN is set", () => {
+  const proc = runLauncherNoToken({ CLAUDE_CODE_OAUTH_TOKEN: "tok" });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(proc.stdout.includes("CLAUDE_CODE_OAUTH_TOKEN=tok"));
+});
+
+test("bin/hivekit proceeds with HIVEKIT_ALLOW_NO_TOKEN=1 and no token", () => {
+  const proc = runLauncherNoToken({ HIVEKIT_ALLOW_NO_TOKEN: "1" });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(proc.stdout.includes("PATH="));
 });

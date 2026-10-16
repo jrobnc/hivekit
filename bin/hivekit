@@ -74,6 +74,14 @@ if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && command -v security >/dev/null 2>&
   fi
 fi
 
+# Fail fast when no Max OAuth token resolved: without one the Agent SDK can fall back
+# to metered API billing or die mid-run. HARNESS_ALLOW_API_KEY is the deliberate
+# API-billing override; HIVEKIT_ALLOW_NO_TOKEN is for tests/CI only.
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "${HARNESS_ALLOW_API_KEY:-}" && -z "${HIVEKIT_ALLOW_NO_TOKEN:-}" ]]; then
+  echo "[hivekit] ERROR: no Claude Max OAuth token resolved (Keychain empty or locked). Run \`claude /login\`, or set CLAUDE_CODE_OAUTH_TOKEN. (HIVEKIT_ALLOW_NO_TOKEN=1 skips this check, for tests/CI only.)" >&2
+  exit 3
+fi
+
 if [[ -n "${HARNESS_ALLOW_API_KEY:-}" ]]; then
   echo "[hivekit] WARNING: HARNESS_ALLOW_API_KEY is set — ANTHROPIC_API_KEY will NOT be stripped. Billing may use metered API key." >&2
   exec env "${UNSET_ARGS[@]}" node "$ENTRY" "$@"

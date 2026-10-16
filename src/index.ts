@@ -373,6 +373,7 @@ async function finalizeRun(
     evaluation?: EvaluationResult;
     roundsRun: number;
     error?: string;
+    failedToReview?: { dimension: string; error: string }[];
   }
 ): Promise<RunOutcome> {
   const { config, runDir, runId } = ctx;
@@ -392,6 +393,7 @@ async function finalizeRun(
     reportPath,
     error: args.error,
     turnLimits: resolveTurnLimits(config),
+    failedToReview: args.failedToReview,
   });
 
   // Machine-readable result first: if writing the human report fails, callers
@@ -426,11 +428,13 @@ async function finalizeRun(
     );
   }
 
-  const summary = args.error
+  const nFailed = args.failedToReview?.length ?? 0;
+  const baseSummary = args.error
     ? args.error.slice(0, 80)
     : args.evaluation
       ? summarizeScores(args.evaluation)
       : `${args.outcome} (no evaluation)`;
+  const summary = nFailed ? `${nFailed} dimension(s) FAILED-TO-REVIEW — ${baseSummary}` : baseSummary;
   await updateIndex(ctx, indexStatusFor(args.outcome), summary);
 
   // Banner. A success banner is emitted ONLY for a success outcome.
@@ -448,6 +452,7 @@ async function finalizeRun(
     `Evaluator: ${result.evaluator.status} (${result.evaluator.reason}) — round ${args.roundsRun}/${config.maxEvalRounds}`
   );
   if (args.error) console.log(`Error:   ${args.error}`);
+  for (const d of args.failedToReview ?? []) console.log(`FAILED-TO-REVIEW: ${d.dimension} (${d.error})`);
   console.log(`Report:  ${reportPath}`);
   console.log(`Result JSON: ${resultPath}`);
   console.log(`Exit code: ${result.exitCode}`);
@@ -497,6 +502,8 @@ async function main(): Promise<RunOutcome> {
   // times" (max_rounds_exhausted) from "never managed to verify anything"
   // (errored) — two states a caller must be able to tell apart.
   let anyJudged = false;
+  // Review dimensions whose findings could not be read: never a clean "0 findings".
+  let failedToReview: { dimension: string; error: string }[] = [];
 
   try {
     // ── Phase 1: Planning ────────────────────────────────────────
@@ -531,7 +538,7 @@ async function main(): Promise<RunOutcome> {
     // ── Checkpoint 1: plan ──────────────────────────────────────
     if (adviseEarly) {
       console.log("\n═══ Advisor: plan check ═══");
-      const a = await advise("plan", config.cwd, runContext);
+      const a = await advise("plan", config.cwd, runContext, ctx.runId);
       await writeFile(join(ctx.runDir, "advisor-plan.md"), a.note + "\n", "utf-8");
       console.log(a.ok ? "[advisor] plan checked, proceeds" : `[advisor] OBJECTION\n${a.note}`);
       if (!a.ok) evaluatorFeedback = `Advisor objection to the plan. Address it while building:\n${a.note}`;
@@ -543,7 +550,8 @@ async function main(): Promise<RunOutcome> {
       // ── Phase 2: Generate ──────────────────────────────────────
       console.log(`\n═══ Phase 2: Generator (round ${round}) ═══`);
       await updateIndex(ctx, `generating-r${round}`, `Generator round ${round}`);
-      await runGenerator(ctx, evaluatorFeedback);
+      const gen = await runGenerator(ctx, evaluatorFeedback);
+      failedToReview = (gen.findings ?? []).filter((f) => f.error).map((f) => ({ dimension: f.dimension, error: f.error! }));
 
       // ── Phase 3: Evaluate ──────────────────────────────────────
       console.log(`\n═══ Phase 3: Evaluator (round ${round}) ═══`);
@@ -555,7 +563,7 @@ async function main(): Promise<RunOutcome> {
       // ── Checkpoint 3: done (advisor verifies before accepting a PASS) ──
       if (evaluation.status === "passed" && advised) {
         console.log("\n═══ Advisor: done check ═══");
-        const a = await advise("done", config.cwd, `${runContext}\nReport: ${join(ctx.runDir, "report.md")}`);
+        const a = await advise("done", config.cwd, `${runContext}\nReport: ${join(ctx.runDir, "report.md")}`, ctx.runId);
         await writeFile(join(ctx.runDir, `advisor-done-r${round}.md`), a.note + "\n", "utf-8");
         if (!a.ok) {
           console.log(`[advisor] OBJECTION\n${a.note}`);
@@ -564,6 +572,7 @@ async function main(): Promise<RunOutcome> {
               outcome: "failed",
               evaluation,
               roundsRun: round,
+              failedToReview,
               error: `Advisor objection (no rounds left): ${a.note.split("\n").slice(0, 3).join(" ")}`,
             });
           }
@@ -584,9 +593,11 @@ async function main(): Promise<RunOutcome> {
             anyJudged,
             roundsRun: round,
             maxRounds: config.maxEvalRounds,
+            erroredDimensions: failedToReview.length,
           }),
           evaluation,
           roundsRun: round,
+          failedToReview,
         });
       }
 
@@ -608,7 +619,7 @@ async function main(): Promise<RunOutcome> {
         );
         console.log(`[jev] same failure twice: ${same === null ? "unsure, escalating" : same}`);
         if (same !== false) {
-          const a = await advise("stuck", config.cwd, `${runContext}\nLatest evaluator feedback:\n${evaluation.feedback}`);
+          const a = await advise("stuck", config.cwd, `${runContext}\nLatest evaluator feedback:\n${evaluation.feedback}`, ctx.runId);
           await writeFile(join(ctx.runDir, `advisor-stuck-r${round}.md`), a.note + "\n", "utf-8");
           evaluatorFeedback += `\n\nAdvisor on the repeated failure:\n${a.note}`;
         }
@@ -634,9 +645,11 @@ async function main(): Promise<RunOutcome> {
         anyJudged,
         roundsRun: round,
         maxRounds: config.maxEvalRounds,
+        erroredDimensions: failedToReview.length,
       }),
       evaluation: lastEvaluation,
       roundsRun: round,
+      failedToReview,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -646,6 +659,7 @@ async function main(): Promise<RunOutcome> {
       evaluation: lastEvaluation,
       roundsRun: round,
       error: msg,
+      failedToReview,
     });
   }
 }

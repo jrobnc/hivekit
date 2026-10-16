@@ -65,7 +65,11 @@ test("launchers resolve the package root through real node_modules/.bin symlinks
     };
 
     for (const [label, launcher] of Object.entries(launchers)) {
-      const run = spawnSync(launcher, ["--help"], { cwd: workdir, encoding: "utf8" });
+      const run = spawnSync(launcher, ["--help"], {
+        cwd: workdir,
+        encoding: "utf8",
+        env: { ...process.env, HIVEKIT_ALLOW_NO_TOKEN: "1" },
+      });
       assert.equal(run.status, 0, `${label} --help exited ${run.status}: ${run.stderr}`);
       assert.match(run.stdout, /Usage: hivekit/, `${label} --help did not print usage`);
     }

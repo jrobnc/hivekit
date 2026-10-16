@@ -73,6 +73,7 @@ export interface DimensionFindings {
   agent: string;
   runId: string;
   findings: Finding[];
+  error?: string; // set when the dimension FAILED-TO-REVIEW
 }
 
 export interface CriterionScore {
@@ -132,6 +133,9 @@ export type RunOutcome =
 
 /** Machine-readable run result written to {runDir}/result.json. */
 export interface RunResult {
+  /** Count of review dimensions that FAILED-TO-REVIEW; present only when > 0. */
+  erroredDimensions?: number;
+  failedToReview?: { dimension: string; error: string }[];
   schemaVersion: 1;
   runId: string;
   mode: Mode;

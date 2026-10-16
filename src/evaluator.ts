@@ -330,6 +330,7 @@ export async function runEvaluator(
     permissionMode: "acceptEdits",
     maxTurns: resolveTurnLimits(config).evaluator,
     phase: "evaluator",
+    runId,
     onProgress: () => process.stdout.write("."),
   });
 

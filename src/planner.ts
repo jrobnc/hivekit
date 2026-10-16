@@ -29,6 +29,7 @@ export async function runPlanner(ctx: RunContext): Promise<PlannerOutput> {
   const agentOpts = {
     ...TIERS.plan,
     label: "planner",
+    runId,
     cwd: config.cwd,
     allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
     permissionMode: "acceptEdits" as const,
