@@ -68,23 +68,113 @@ test("plugin.json has required fields", () => {
   }
 });
 
-test("plugin.json name <= 64 chars", () => {
+test("plugin.json name is lowercase-hyphen and <= 64 chars; description <= 4000", () => {
+  assert.match(plugin.name, /^[a-z0-9]+(-[a-z0-9]+)*$/);
   assert.ok(plugin.name.length <= 64, `name is ${plugin.name.length} chars`);
+  assert.ok(plugin.description.length <= 4000);
 });
 
-test("plugin.json contains only manifest-spec fields", () => {
-  // plugin.json must contain only fields from the Codex plugin skill spec:
-  // name, version, description, skills (optional: apps).
-  // Dashboard listing fields (displayName, shortDescription, category) belong
-  // in the submission form, not the manifest.
-  const allowed = new Set(["name", "version", "description", "skills", "apps"]);
-  const actual = Object.keys(plugin);
-  const unexpected = actual.filter((k) => !allowed.has(k));
-  assert.deepEqual(
-    unexpected,
-    [],
-    `plugin.json has non-spec fields: ${unexpected.join(", ")}`,
-  );
+test("plugin.json contains only verified manifest keys", () => {
+  // Allowed keys per https://developers.openai.com/plugins/build/plugins and
+  // https://developers.openai.com/plugins/deploy/submission. Listing metadata lives in
+  // extensions["com.openai"].interface.
+  const allowed = new Set([
+    "$schema", "name", "version", "description", "author", "homepage", "repository",
+    "license", "keywords", "skills", "extensions",
+  ]);
+  const unexpected = Object.keys(plugin).filter((k) => !allowed.has(k));
+  assert.deepEqual(unexpected, [], `plugin.json has non-spec fields: ${unexpected.join(", ")}`);
+});
+
+test("plugin is skills-only: no apps, hooks, mcpServers or review", () => {
+  const ext = plugin.extensions["com.openai"];
+  for (const k of ["apps", "hooks", "mcpServers", "review"]) {
+    assert.equal(plugin[k], undefined, `top-level ${k}`);
+    assert.equal(ext[k], undefined, `extensions["com.openai"].${k}`);
+  }
+  const walk = (dir) => readdirSync(dir).flatMap((n) => {
+    const p = join(dir, n);
+    return statSync(p).isDirectory() ? [p, ...walk(p)] : [p];
+  });
+  const bad = walk(PLUGIN_DIR).filter((p) => /(^|\/)hooks$|\.app\.json$/.test(p));
+  assert.deepEqual(bad, []);
+});
+
+test("author and license", () => {
+  assert.ok(plugin.author.name);
+  assert.equal(plugin.license, "Apache-2.0");
+  assert.match(readFileSync(join(ROOT, "LICENSE"), "utf-8").slice(0, 200), /Apache License/);
+});
+
+test('manifest uses the single dotted key "com.openai"', () => {
+  assert.ok(Object.keys(plugin.extensions).includes("com.openai"));
+  assert.equal(plugin.extensions.com, undefined);
+});
+
+const ui = plugin.extensions?.["com.openai"]?.interface ?? {};
+
+test("interface fields and limits", () => {
+  assert.ok(ui.displayName.length > 0 && ui.displayName.length <= 30);
+  assert.ok(ui.shortDescription.length > 0 && ui.shortDescription.length <= 30);
+  assert.ok(ui.longDescription.length > 0 && ui.longDescription.length <= 4000);
+  assert.ok(ui.developerName.length > 0 && ui.developerName.length <= 80);
+  assert.ok(ui.category);
+  assert.ok(Array.isArray(ui.capabilities) && ui.capabilities.length > 0 && ui.capabilities.length <= 20);
+  for (const c of ui.capabilities) assert.ok(typeof c === "string" && c.length <= 120);
+  if (ui.defaultPrompt) {
+    assert.ok(ui.defaultPrompt.length <= 3);
+    for (const p of ui.defaultPrompt) assert.ok(p.length <= 128);
+  }
+  assert.ok(ui.logo);
+});
+
+test("logo and composerIcon are square SVGs <= 5 MiB, side >= 48", () => {
+  for (const key of ["logo", "composerIcon"]) {
+    if (key === "composerIcon" && !ui.composerIcon) continue;
+    const p = resolve(PLUGIN_DIR, ui[key]);
+    assert.ok(existsSync(p), `${key} missing: ${p}`);
+    assert.ok(p.endsWith(".svg"));
+    assert.ok(statSync(p).size <= 5 * 1024 * 1024);
+    const svg = readFileSync(p, "utf-8");
+    assert.ok(svg.includes("<svg"));
+    const w = svg.match(/\swidth="(\d+)"/)?.[1];
+    const h = svg.match(/\sheight="(\d+)"/)?.[1];
+    const vb = svg.match(/viewBox="0 0 (\d+) (\d+)"/);
+    const [sw, sh] = w && h ? [w, h] : vb ? [vb[1], vb[2]] : [];
+    assert.ok(sw && sw === sh, `${key} is not square`);
+    assert.ok(Number(sw) >= 48);
+  }
+});
+
+test("listing and repo URLs are https, short, under the repo, and blob paths exist", () => {
+  const urls = [
+    ui.websiteURL, ui.privacyPolicyURL, ui.termsOfServiceURL, plugin.homepage, plugin.repository,
+  ];
+  for (const u of urls) {
+    assert.ok(u.startsWith("https://"), u);
+    assert.ok(u.length <= 1024, u);
+    assert.ok(u.startsWith("https://github.com/jrobnc/hivekit"), u);
+    const rest = u.split("/blob/main/")[1];
+    if (rest) assert.ok(existsSync(join(ROOT, rest)), `${u} does not exist locally`);
+  }
+});
+
+test("marketplace.json points at the plugin", () => {
+  const mkt = readJSON(join(ROOT, ".agents", "plugins", "marketplace.json"));
+  assert.equal(mkt.name, "hivekit");
+  assert.equal(mkt.plugins.length, 1);
+  const entry = mkt.plugins[0];
+  assert.equal(entry.name, "hivekit");
+  assert.equal(typeof entry.source, "string");
+  assert.equal(entry.policy.installation, "AVAILABLE");
+  assert.equal(entry.policy.authentication, "ON_INSTALL");
+  assert.ok(existsSync(join(resolve(ROOT, entry.source), "plugin.json")));
+});
+
+test("docs carry no stale 'unverified' notes", () => {
+  for (const f of ["listing.md", "codex-plugin.md"]) {
+    assert.doesNotMatch(readFileSync(join(ROOT, "docs", f), "utf-8"), /unverified|not (re-)?verified/i, f);
+  }
 });
 
 test("plugin.json version matches package.json version", () => {
@@ -160,18 +250,27 @@ test("CLI flags referenced in skills exist in --help output", () => {
 
 // The npm name "hivekit" belongs to an unrelated third-party package (texthive/hivekit). The plugin must
 // never tell anyone to install it, and must point at the real repo.
+const NPM_HIVEKIT_RE = /npm (install|i)( -g)? hivekit\b/;
+
 test('plugin never installs the unrelated npm package "hivekit"', () => {
   const walk = (dir) => readdirSync(dir).flatMap((n) => {
     const p = join(dir, n);
     return statSync(p).isDirectory() ? walk(p) : [p];
   });
   const root = resolve(new URL('..', import.meta.url).pathname);
-  const files = [...walk(join(root, 'plugins/hivekit')), join(root, 'docs/codex-plugin.md')];
+  const docs = readdirSync(join(root, 'docs')).filter((n) => n.endsWith('.md')).map((n) => join(root, 'docs', n));
+  const files = [...walk(join(root, 'plugins/hivekit')), join(root, 'README.md'), ...docs];
   for (const f of files) {
     const text = readFileSync(f, 'utf8');
-    assert.doesNotMatch(text, /npm (install|i)( -g)? hivekit\b/, `${f} installs the unrelated npm package`);
+    assert.doesNotMatch(text, NPM_HIVEKIT_RE, `${f} installs the unrelated npm package`);
     assert.doesNotMatch(text, /github\.com\/anthropics\/hivekit/, `${f} points at a non-existent repo`);
   }
+});
+test("npm-hivekit ban regex matches installs and not the real install path", () => {
+  assert.match("npm install -g hivekit", NPM_HIVEKIT_RE);
+  assert.match("npm i -g hivekit", NPM_HIVEKIT_RE);
+  assert.doesNotMatch("npm link", NPM_HIVEKIT_RE);
+  assert.doesNotMatch("npm ci && npm run build", NPM_HIVEKIT_RE);
 });
 
 // ── extractFlags self-tests ─────────────────────────────────────────
@@ -295,7 +394,7 @@ test("relative markdown links in plugins/ and docs/ resolve to existing files", 
 
   const mdFiles = [
     ...walk(join(ROOT, "plugins")).filter((f) => f.endsWith(".md")),
-    join(ROOT, "docs", "codex-plugin.md"),
+    ...readdirSync(join(ROOT, "docs")).filter((n) => n.endsWith(".md")).map((n) => join(ROOT, "docs", n)),
   ];
 
   const broken = [];
