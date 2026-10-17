@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Harness launcher — strips ANTHROPIC_API_KEY BEFORE Node starts so the
+# Harness launcher — strips ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN BEFORE Node starts so the
 # Agent SDK can't resolve to metered API billing. The OAuth (Claude Max)
 # path is then the only credential available, matching the intended billing
 # model. To opt out for a specific run, set HARNESS_ALLOW_API_KEY=1.
@@ -68,7 +68,7 @@ done
 # set variable is a deliberate override (CI, tests) and is left alone.
 if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && command -v security >/dev/null 2>&1; then
   fresh_token="$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
-    | python3 -c "import sys,json; print(json.load(sys.stdin)['claudeAiOauth']['accessToken'], end='')" 2>/dev/null || true)"
+    | python3 -c "import sys,json; t=json.load(sys.stdin)['claudeAiOauth']['accessToken']; print(t if isinstance(t,str) else '', end='')" 2>/dev/null || true)"
   if [[ -n "$fresh_token" ]]; then
     export CLAUDE_CODE_OAUTH_TOKEN="$fresh_token"
   fi
@@ -76,9 +76,10 @@ fi
 
 # Fail fast when no Max OAuth token resolved: without one the Agent SDK can fall back
 # to metered API billing or die mid-run. HARNESS_ALLOW_API_KEY is the deliberate
-# API-billing override; HIVEKIT_ALLOW_NO_TOKEN is for tests/CI only.
-if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "${HARNESS_ALLOW_API_KEY:-}" && -z "${HIVEKIT_ALLOW_NO_TOKEN:-}" ]]; then
-  echo "[hivekit] ERROR: no Claude Max OAuth token resolved (Keychain empty or locked). Run \`claude /login\`, or set CLAUDE_CODE_OAUTH_TOKEN. (HIVEKIT_ALLOW_NO_TOKEN=1 skips this check, for tests/CI only.)" >&2
+# API-billing override; HIVEKIT_ALLOW_NO_TOKEN is for tests/CI only. A
+# ~/.claude/.credentials.json file (Linux/no-Keychain login) also counts as a token source.
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "${HARNESS_ALLOW_API_KEY:-}" && -z "${HIVEKIT_ALLOW_NO_TOKEN:-}" && ! -f "${HOME:-}/.claude/.credentials.json" ]]; then
+  echo "[hivekit] ERROR: no Claude Max OAuth token found (checked CLAUDE_CODE_OAUTH_TOKEN, the macOS Keychain, ~/.claude/.credentials.json). Run \`claude /login\`, or set CLAUDE_CODE_OAUTH_TOKEN. (HIVEKIT_ALLOW_NO_TOKEN=1 skips this check, for tests/CI only.)" >&2
   exit 3
 fi
 
@@ -87,4 +88,4 @@ if [[ -n "${HARNESS_ALLOW_API_KEY:-}" ]]; then
   exec env "${UNSET_ARGS[@]}" node "$ENTRY" "$@"
 fi
 
-exec env -u ANTHROPIC_API_KEY "${UNSET_ARGS[@]}" node "$ENTRY" "$@"
+exec env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN "${UNSET_ARGS[@]}" node "$ENTRY" "$@"

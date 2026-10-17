@@ -110,7 +110,7 @@ async function runReviewGenerators(
     const batchResults = await Promise.all(batch.map(runOneDimension));
     results.push(...batchResults);
   }
-  const emptyCount = results.filter(r => r.findings.length === 0).length;
+  const emptyCount = results.filter(r => !r.error && r.findings.length === 0).length;
   if (emptyCount > 0) {
     console.warn(`[generator] WARNING: ${emptyCount}/${results.length} review agents returned empty findings`);
   }
@@ -246,29 +246,6 @@ async function runImproveGenerators(
 }
 
 /**
- * Throw if a majority of improve agents produced no meaningful progress.
- *
- * A missing progress file is only evidence of "no progress" when the code did not change either: agents that edit
- * the target but cannot (or forget to) write their note must not abort finished work. When the working tree changed,
- * the run continues to the evaluator, which judges the actual diff.
- */
-/** Read the findings file a review agent wrote; an unreadable file is FAILED-TO-REVIEW, not "0 findings". */
-export async function readFindings(findingsPath: string, dim: string, runId: string): Promise<DimensionFindings> {
-  try {
-    const raw = await readFile(findingsPath, "utf-8");
-    return normalizeFindings(JSON.parse(raw), dim, runId);
-  } catch (err) {
-    return {
-      dimension: dim,
-      agent: `Agent: ${dim}`,
-      runId,
-      findings: [],
-      error: `findings unreadable: ${err instanceof Error ? err.message : err}`,
-    } as DimensionFindings;
-  }
-}
-
-/**
  * Coerce whatever a review agent wrote into DimensionFindings. Agents sometimes write a bare array
  * instead of { findings: [...] }; reading `.findings.length` on that crashed the whole run after every
  * specialist had finished. A bare array becomes the findings list; any other shape becomes an empty
@@ -286,6 +263,29 @@ export function normalizeFindings(parsed: unknown, dim: string, runId: string): 
   return { ...empty, error: "findings file has an unexpected shape" };
 }
 
+/** Read the findings file a review agent wrote; an unreadable file is FAILED-TO-REVIEW, not "0 findings". */
+export async function readFindings(findingsPath: string, dim: string, runId: string): Promise<DimensionFindings> {
+  try {
+    const raw = await readFile(findingsPath, "utf-8");
+    return normalizeFindings(JSON.parse(raw), dim, runId);
+  } catch (err) {
+    return {
+      dimension: dim,
+      agent: `Agent: ${dim}`,
+      runId,
+      findings: [],
+      error: `findings unreadable: ${err instanceof Error ? err.message : err}`,
+    } as DimensionFindings;
+  }
+}
+
+/**
+ * Throw if a majority of improve agents produced no meaningful progress.
+ *
+ * A missing progress file is only evidence of "no progress" when the code did not change either: agents that edit
+ * the target but cannot (or forget to) write their note must not abort finished work. When the working tree changed,
+ * the run continues to the evaluator, which judges the actual diff.
+ */
 export function checkImproveFailures(merged: string[], agentCount: number, treeChanged = false): string | undefined {
   const failedCount = merged.filter(m => m.includes("_No progress recorded._")).length;
   if (failedCount <= agentCount / 2) return undefined;

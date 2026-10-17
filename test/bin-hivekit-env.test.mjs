@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -133,6 +133,7 @@ test("bin/hivekit still strips ANTHROPIC_API_KEY (existing behavior, no regressi
         ...cleanEnv,
         PATH: `${fakeNodeDir}:${process.env.PATH}`,
         ANTHROPIC_API_KEY: "sk-should-not-leak",
+        ANTHROPIC_AUTH_TOKEN: "tok-should-not-leak",
         HIVEKIT_ALLOW_NO_TOKEN: "1",
       },
       encoding: "utf-8",
@@ -142,6 +143,10 @@ test("bin/hivekit still strips ANTHROPIC_API_KEY (existing behavior, no regressi
       !output.includes("ANTHROPIC_API_KEY="),
       "ANTHROPIC_API_KEY must still be stripped by default"
     );
+    assert.ok(
+      !output.includes("ANTHROPIC_AUTH_TOKEN="),
+      "ANTHROPIC_AUTH_TOKEN must be stripped by default"
+    );
   } finally {
     rmSync(fakeNodeDir, { recursive: true, force: true });
   }
@@ -149,14 +154,20 @@ test("bin/hivekit still strips ANTHROPIC_API_KEY (existing behavior, no regressi
 
 // --- fail-fast when no OAuth token resolves ---------------------------------
 
-function runLauncherNoToken(extraEnv) {
+function runLauncherNoToken(extraEnv, { security = "#!/usr/bin/env bash\nexit 1\n", credentialsFile = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "hivekit-fake-node-"));
+  // Empty HOME so a developer's real ~/.claude/.credentials.json can't satisfy the guard.
+  const home = mkdtempSync(join(tmpdir(), "hivekit-fake-home-"));
   writeFileSync(join(dir, "node"), "#!/usr/bin/env bash\nenv\n");
   // Fake `security` so a developer Mac's real Keychain can't supply a token.
-  writeFileSync(join(dir, "security"), "#!/usr/bin/env bash\nexit 1\n");
+  writeFileSync(join(dir, "security"), security);
   chmodSync(join(dir, "node"), 0o755);
   chmodSync(join(dir, "security"), 0o755);
-  const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+  if (credentialsFile) {
+    mkdirSync(join(home, ".claude"));
+    writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  }
+  const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, HOME: home };
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   delete env.HARNESS_ALLOW_API_KEY;
   delete env.HIVEKIT_ALLOW_NO_TOKEN;
@@ -167,6 +178,7 @@ function runLauncherNoToken(extraEnv) {
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
   }
 }
 
@@ -175,6 +187,7 @@ test("bin/hivekit exits 3 with a clear message when no OAuth token resolves", ()
   assert.equal(proc.status, 3, `stderr: ${proc.stderr}`);
   assert.match(proc.stderr, /claude \/login/);
   assert.match(proc.stderr, /CLAUDE_CODE_OAUTH_TOKEN/);
+  assert.match(proc.stderr, /\.credentials\.json/);
   assert.ok(!proc.stdout.includes("PATH="), "node must not have been exec'd");
 });
 
@@ -186,6 +199,20 @@ test("bin/hivekit proceeds when CLAUDE_CODE_OAUTH_TOKEN is set", () => {
 
 test("bin/hivekit proceeds with HIVEKIT_ALLOW_NO_TOKEN=1 and no token", () => {
   const proc = runLauncherNoToken({ HIVEKIT_ALLOW_NO_TOKEN: "1" });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(proc.stdout.includes("PATH="));
+});
+
+test("bin/hivekit exits 3 when the Keychain holds a null accessToken", () => {
+  const proc = runLauncherNoToken({}, {
+    security: `#!/usr/bin/env bash\necho '{"claudeAiOauth":{"accessToken":null}}'\n`,
+  });
+  assert.equal(proc.status, 3, `stderr: ${proc.stderr}`);
+  assert.ok(!proc.stdout.includes("PATH="), "node must not have been exec'd");
+});
+
+test("bin/hivekit proceeds when ~/.claude/.credentials.json exists (non-macOS)", () => {
+  const proc = runLauncherNoToken({}, { credentialsFile: true });
   assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
   assert.ok(proc.stdout.includes("PATH="));
 });

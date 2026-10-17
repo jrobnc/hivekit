@@ -199,10 +199,10 @@ source ~/.zshenv
 hivekit routes through your Claude Max subscription via OAuth. To stop a stray `ANTHROPIC_API_KEY` (a sourced `.env`, a parent shell, an MCP context) from silently switching you to metered API billing, the launcher strips it **before Node starts**:
 
 ```bash
-exec env -u ANTHROPIC_API_KEY node dist/index.js "$@"   # bin/hivekit
+exec env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN … node dist/index.js "$@"   # bin/hivekit
 ```
 
-A top-of-file `delete process.env.ANTHROPIC_API_KEY` would be too late — ES modules are hoisted, so the SDK can resolve credentials before any statement in `src/index.ts` runs. **Invoke the wrapper** (`./bin/hivekit`), not `node dist/index.js`. To deliberately bill API for a run, set `HARNESS_ALLOW_API_KEY=1`. If no OAuth token resolves (Keychain empty or locked, `CLAUDE_CODE_OAUTH_TOKEN` unset), the launcher exits 3 with a stderr message instead of starting a run.
+A top-of-file `delete process.env.ANTHROPIC_API_KEY` would be too late — ES modules are hoisted, so the SDK can resolve credentials before any statement in `src/index.ts` runs. **Invoke the wrapper** (`./bin/hivekit`), not `node dist/index.js`. To deliberately bill API for a run, set `HARNESS_ALLOW_API_KEY=1`. If no OAuth token resolves (`CLAUDE_CODE_OAUTH_TOKEN` unset, macOS Keychain empty or locked, and no `~/.claude/.credentials.json`), the launcher exits 3 with a stderr message instead of starting a run. On Linux and other non-macOS systems the launcher accepts `~/.claude/.credentials.json` (written by `claude /login`); otherwise export `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## CLI flags
 
@@ -255,7 +255,7 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 
 `CLAUDE_CODE_OAUTH_TOKEN` is deliberately left untouched — it is the Claude Max credential that subprocess authenticates with.
 
-Every agent call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, model, effort, usd, ms, cwd, maxTurns, error, runId, phase, turns, usage{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}, lane`) for cost tracking and auditability.
+Every `runAgent` call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, model, effort, usd, ms, cwd, maxTurns, error, runId, phase, turns, usage{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}, lane`) for cost tracking and auditability.
 
 ## Under the hood — the implementation path
 

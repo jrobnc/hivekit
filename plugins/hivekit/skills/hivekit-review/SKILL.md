@@ -55,9 +55,10 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 |---|---|---|
 | 0 | Review completed (not that there are zero findings). | Read the report; pass `plan.md` to `hivekit-improve` to fix findings. |
 | 1 | The harness itself crashed (unhandled exception). | Read stderr for the stack trace. |
-| 4 | An error occurred during the run. | Check credentials, flags, and network. Read stderr. |
+| 3 | Launcher: no Max OAuth token resolved (no `result.json` written). | Run `claude /login` or set `CLAUDE_CODE_OAUTH_TOKEN`. |
+| 4 | An error occurred during the run, or a review dimension FAILED-TO-REVIEW (see `failedToReview` in `result.json`). | Check credentials, flags, and network. Read stderr; re-run — a FAILED-TO-REVIEW dimension means the review is incomplete. |
 
-> **Note:** A review always stops after one evaluation round, so exit code 3 (rounds exhausted) never occurs in review. Exit code 2 (failed verification) is reachable only when the mode is *inferred* from keywords rather than set with `--mode review`. Always pass `--mode review` explicitly to get the contract above.
+> **Note:** A review always stops after one evaluation round, so rounds-exhausted exit code 3 never occurs in review (only the launcher's no-token 3 can). Exit code 2 (failed verification) is reachable only when the mode is *inferred* from keywords rather than set with `--mode review`. Always pass `--mode review` explicitly to get the contract above.
 
 ## Reading the result
 

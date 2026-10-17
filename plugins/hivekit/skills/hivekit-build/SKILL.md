@@ -78,6 +78,8 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 | 3 | Evaluation rounds exhausted — failed to pass within the configured rounds. | Read the report; narrow the task or raise `--max-turns`. |
 | 4 | An error occurred during the run. | Check credentials, flags, and network. Read stderr. |
 
+> Exit 3 can also come from the launcher before a run starts (no Max OAuth token resolved; no `result.json`). Run `claude /login` or set `CLAUDE_CODE_OAUTH_TOKEN`.
+
 ## Reading the result
 
 - Check `result.json` for the `outcome` field to see pass/fail status and details.
