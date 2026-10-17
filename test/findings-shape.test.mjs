@@ -10,17 +10,20 @@ test("a bare array becomes the findings list", () => {
   assert.equal(out.dimension, "architecture");
   assert.equal(out.runId, "run-1");
   assert.equal(out.findings.length, 2);
+  assert.equal(out.error, undefined);
 });
 
 test("the documented { findings: [...] } shape is kept as written", () => {
   const out = normalizeFindings({ dimension: "bugs", agent: "Agent: bugs", runId: "r", findings: [{ title: "z" }] }, "bugs", "r");
   assert.equal(out.agent, "Agent: bugs");
   assert.equal(out.findings.length, 1);
+  assert.equal(out.error, undefined);
 });
 
 test("any other shape becomes an empty dimension, never an exception", () => {
   for (const bad of [null, 42, "text", { findings: "nope" }, { notFindings: [] }]) {
     const out = normalizeFindings(bad, "ux", "r");
     assert.deepEqual(out.findings, [], `shape ${JSON.stringify(bad)}`);
+    assert.match(out.error, /unexpected shape/);
   }
 });

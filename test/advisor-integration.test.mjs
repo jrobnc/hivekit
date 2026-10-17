@@ -19,6 +19,7 @@ let adviseImpl = async () => ({ ok: true, note: "advisor ok" });
 let jevYesNoImpl = async () => null;
 let evaluatorResults = [];
 let generatorFeedbacks = [];
+let generatorFindings;
 let tmpDir;
 
 // ── Module mocks ───────────────────────────────────────────────────
@@ -44,7 +45,7 @@ mock.module("../dist/generator.js", {
   namedExports: {
     runGenerator: async (_ctx, feedback) => {
       generatorFeedbacks.push(feedback);
-      return { mode: "build" };
+      return generatorFindings ? { mode: "review", findings: generatorFindings } : { mode: "build" };
     },
   },
 });
@@ -239,6 +240,32 @@ test("review mode skips all advisor and jev calls", async () => {
 
   rmSync(tmpDir, { recursive: true, force: true });
 });
+
+for (const [name, erroredDims] of [["one", ["bugs"]], ["two of three", ["bugs", "security"]]]) {
+  test(`review mode: ${name} FAILED-TO-REVIEW dimension(s) -> errored, exit 4, failedToReview`, async () => {
+    setupTmpDir();
+    setArgv("review");
+    evaluatorResults = [
+      { scores: [{ criterion: "test", score: 90 }], status: "passed", reason: "meets_threshold", passed: true, feedback: "", report: "review done" },
+    ];
+    generatorFindings = ["architecture", "bugs", "security"].map((dimension) => ({
+      dimension, agent: `Agent: ${dimension}`, runId: "r", findings: [],
+      ...(erroredDims.includes(dimension) ? { error: "findings unreadable: ENOENT" } : {}),
+    }));
+    try {
+      const outcome = await main();
+      assert.equal(outcome, "errored");
+      const result = JSON.parse(readFileSync(join(findRunDir(), "result.json"), "utf-8"));
+      assert.equal(result.exitCode, 4);
+      assert.equal(result.outcome, "errored");
+      assert.deepEqual(result.failedToReview,
+        erroredDims.map((dimension) => ({ dimension, error: "findings unreadable: ENOENT" })));
+    } finally {
+      generatorFindings = undefined;
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+}
 
 test("stuck: jev true/null escalates to advisor; jev false skips", async () => {
   setupTmpDir();

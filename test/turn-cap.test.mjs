@@ -27,6 +27,12 @@ test("planner cap-hit throws a named error and still writes the ledger line", as
   const last = JSON.parse(readFileSync(ledger, "utf-8").trim().split("\n").pop());
   assert.equal(last.maxTurns, 5);
   assert.equal(last.error, true);
+  assert.equal(last.phase, "planner");
+  assert.equal(last.turns, 0);
+});
+
+test("advisor phase rethrows the original SDK error, not a cap message", async () => {
+  await assert.rejects(runAgent({ prompt: "x", label: "a", phase: "advisor", maxTurns: 5 }), { message: SDK_ERROR });
 });
 
 test("without a phase the original error is rethrown unchanged", async () => {

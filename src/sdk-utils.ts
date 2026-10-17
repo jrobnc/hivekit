@@ -60,7 +60,9 @@ export interface AgentOptions {
   permissionMode?: PermissionMode;
   maxTurns?: number;
   /** Phase name; when set, a max-turns stop throws a named cap-hit error */
-  phase?: TurnPhase;
+  phase?: TurnPhase | "advisor";
+  /** Run id, recorded on the ledger line */
+  runId?: string;
   /** Spec path count, for the planner cap-hit message */
   specPaths?: number;
   /** Called periodically with progress indicators */
@@ -96,6 +98,8 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   let totalCostUsd = 0;
   let isError = false;
   let subtype: string | undefined;
+  let turns = 0;
+  let usage: Record<string, unknown> | undefined;
   let thrown: unknown;
 
   let messageCount = 0;
@@ -123,6 +127,8 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
         totalCostUsd = (msg.total_cost_usd as number) ?? 0;
         isError = (msg.is_error as boolean) ?? false;
         subtype = msg.subtype as string | undefined;
+        turns = (msg.num_turns as number) ?? 0;
+        usage = msg.usage as Record<string, unknown> | undefined;
       }
     }
   } catch (err) {
@@ -150,6 +156,16 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
         cwd: opts.cwd,
         maxTurns: sdkOpts.maxTurns,
         error: isError || thrown !== undefined,
+        runId: opts.runId ?? "",
+        phase: opts.phase ?? "",
+        turns,
+        usage: {
+          input_tokens: Number(usage?.input_tokens ?? 0),
+          output_tokens: Number(usage?.output_tokens ?? 0),
+          cache_read_input_tokens: Number(usage?.cache_read_input_tokens ?? 0),
+          cache_creation_input_tokens: Number(usage?.cache_creation_input_tokens ?? 0),
+        },
+        lane: process.env.HIVEKIT_LANE ?? "",
       }) + "\n",
       "utf-8"
     );
@@ -159,7 +175,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
 
   const thrownMsg = thrown === undefined ? undefined : (thrown as Error)?.message ?? String(thrown);
   const capHit = subtype === "error_max_turns" || /maximum number of turns/i.test(thrownMsg ?? (isError ? result : ""));
-  if (capHit && opts.phase) {
+  if (capHit && opts.phase && opts.phase !== "advisor") {
     throw new Error(turnCapMessage(opts.phase, sdkOpts.maxTurns!, opts.phase === "planner" ? opts.specPaths : undefined));
   }
   if (thrown !== undefined) throw thrown;

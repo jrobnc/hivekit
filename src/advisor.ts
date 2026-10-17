@@ -102,12 +102,14 @@ export interface Advice {
   note: string;
 }
 
-export async function advise(checkpoint: Checkpoint, cwd: string, context: string): Promise<Advice> {
+export async function advise(checkpoint: Checkpoint, cwd: string, context: string, runId: string): Promise<Advice> {
   if (process.env.HIVEKIT_ADVISOR === "0") return { ok: true, note: "advisor off" };
   try {
     const { result } = await runAgent({
       ...TIERS.advise,
       label: `advisor-${checkpoint}`,
+      runId,
+      phase: "advisor",
       cwd,
       allowedTools: ["Read", "Glob", "Grep", "Bash"],
       maxTurns: 15,

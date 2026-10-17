@@ -13,6 +13,7 @@ import {
   indexStatusFor,
   isSuccessOutcome,
   neutralizeAgentVerdictClaims,
+  renderVerdictBanner,
   resultLabelFor,
   stripVerdictBanner,
 } from "../dist/outcome.js";
@@ -391,4 +392,26 @@ test("report banner shows turn limits only when recorded", () => {
   const withLimits = composeReport("## Report\n", result("failed", { turnLimits }));
   assert.match(withLimits, /\*\*Turn limits:\*\* planner 75/);
   assert.doesNotMatch(composeReport("## Report\n", result("failed")), /Turn limits/);
+});
+
+// ── FAILED-TO-REVIEW ────────────────────────────────────────────────
+
+test("an errored review dimension is errored (non-zero) even under explicit --mode review", () => {
+  const outcome = decideOutcome({
+    mode: "review", explicitMode: true, terminalStatus: "failed", roundsRun: 1, maxRounds: 3, erroredDimensions: 1,
+  });
+  assert.equal(outcome, "errored");
+  assert.notEqual(exitCodeFor(outcome), 0);
+});
+
+test("failedToReview is recorded and bannered only when non-empty", () => {
+  const r = result("errored", { failedToReview: [{ dimension: "security", error: "x" }] });
+  assert.equal(r.erroredDimensions, 1);
+  assert.deepEqual(r.failedToReview, [{ dimension: "security", error: "x" }]);
+  assert.match(renderVerdictBanner(r), /FAILED-TO-REVIEW/);
+
+  const clean = result("errored");
+  assert.equal(clean.erroredDimensions, undefined);
+  assert.equal(clean.failedToReview, undefined);
+  assert.doesNotMatch(renderVerdictBanner(clean), /FAILED-TO-REVIEW/);
 });

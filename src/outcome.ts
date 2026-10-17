@@ -30,7 +30,7 @@ import { describeTurnLimits } from "./turns.js";
  *
  * Distinct codes are a hard requirement: a caller must be able to tell an
  * evaluator rejection (2) from rounds running out (3) from an evaluator that
- * never produced a verdict (4) from hivekit itself crashing (1) — without
+ * never produced a verdict, or a review dimension that failed to review (4) from hivekit itself crashing (1) — without
  * parsing stdout.
  */
 export const EXIT_CODES: Record<RunOutcome, number> = {
@@ -97,6 +97,8 @@ export interface OutcomeInput {
   anyJudged?: boolean;
   roundsRun: number;
   maxRounds: number;
+  /** Review dimensions that FAILED-TO-REVIEW; any > 0 is never a success. */
+  erroredDimensions?: number;
 }
 
 /**
@@ -110,6 +112,9 @@ export function decideOutcome(input: OutcomeInput): RunOutcome {
 
   // No evaluator verdict at all — we verified nothing. Never a success.
   if (terminalStatus === undefined) return "errored";
+
+  // A review dimension that could not be read is an unverified review, in every mode.
+  if ((input.erroredDimensions ?? 0) > 0) return "errored";
 
   // Review mode's evaluator scores the *subject under review*, not hivekit's
   // own work: a low score means "this codebase has problems", which is a
@@ -146,6 +151,7 @@ export interface ResultInput {
   reportPath: string;
   error?: string;
   turnLimits?: TurnLimits;
+  failedToReview?: { dimension: string; error: string }[];
   timestamp?: string;
 }
 
@@ -173,6 +179,10 @@ export function buildRunResult(input: ResultInput): RunResult {
   };
   if (input.error !== undefined) result.error = input.error;
   if (input.turnLimits !== undefined) result.turnLimits = input.turnLimits;
+  if (input.failedToReview?.length) {
+    result.failedToReview = input.failedToReview;
+    result.erroredDimensions = input.failedToReview.length;
+  }
 
   // Belt and braces: ok must never disagree with the exit code.
   if (result.ok !== (exitCode === 0)) {
@@ -232,6 +242,12 @@ export function renderVerdictBanner(result: RunResult): string {
   // stripVerdictBanner's block-size cap, orphaning its own open marker.
   if (result.error) {
     lines.push(`- **Error:** ${result.error.replace(/\s*[\r\n]+\s*/g, " ⏎ ").slice(0, 500)}`);
+  }
+  if (result.failedToReview?.length) {
+    const dims = result.failedToReview.map((d) => `${d.dimension} (${d.error})`).join("; ");
+    lines.push(
+      `- **FAILED-TO-REVIEW (${result.failedToReview.length}):** ${dims.replace(/\s*[\r\n]+\s*/g, " ⏎ ").slice(0, 500)}`
+    );
   }
   if (!result.ok) {
     lines.push(
