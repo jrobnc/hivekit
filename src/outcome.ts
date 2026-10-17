@@ -21,7 +21,9 @@ import type {
   RunOutcome,
   RunResult,
   CriterionScore,
+  TurnLimits,
 } from "./types.js";
+import { describeTurnLimits } from "./turns.js";
 
 /**
  * Process exit codes, one per terminal outcome.
@@ -143,6 +145,7 @@ export interface ResultInput {
   scores?: CriterionScore[];
   reportPath: string;
   error?: string;
+  turnLimits?: TurnLimits;
   timestamp?: string;
 }
 
@@ -169,6 +172,7 @@ export function buildRunResult(input: ResultInput): RunResult {
     timestamp: input.timestamp ?? new Date().toISOString(),
   };
   if (input.error !== undefined) result.error = input.error;
+  if (input.turnLimits !== undefined) result.turnLimits = input.turnLimits;
 
   // Belt and braces: ok must never disagree with the exit code.
   if (result.ok !== (exitCode === 0)) {
@@ -221,6 +225,9 @@ export function renderVerdictBanner(result: RunResult): string {
     `- **Exit code:** ${result.exitCode}`,
     `- **Run ID:** ${result.runId}`,
   ];
+  if (result.turnLimits) {
+    lines.push(`- **Turn limits:** ${describeTurnLimits(result.turnLimits, result.mode)}`);
+  }
   // Single-line: a multi-line error message would otherwise push the banner past
   // stripVerdictBanner's block-size cap, orphaning its own open marker.
   if (result.error) {

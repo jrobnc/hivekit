@@ -1,6 +1,17 @@
 export type Mode = "review" | "build" | "improve";
 export type Depth = "quick" | "standard" | "deep";
 
+/** Phases with their own turn limit (see turns.ts). */
+export type TurnPhase = "planner" | "generator" | "evaluator" | "review";
+export interface TurnLimits {
+  planner: number;
+  generator: number;
+  evaluator: number;
+  review: number;
+  /** Distinct file paths counted in the task (drives the planner default). */
+  specPaths: number;
+}
+
 /** A HIVE.md Success Criterion and how it is verified (see docs/HIVE_SPEC.md). */
 export type VerifierTier = "auto" | "judge" | "human";
 export interface Criterion {
@@ -30,8 +41,10 @@ export interface HarnessConfig {
   intentFile?: string;
   /** Also emit a structured intent.yaml alongside the markdown artifacts */
   emitYaml?: boolean;
-  /** Max turns per agent (default: 100 for build, 60 for improve, 40 for review) */
+  /** Max turns for every phase unless a per-phase override is set; see README → Turn limits */
   maxTurns?: number;
+  /** Per-phase turn overrides (--planner-turns etc.); beat `maxTurns` */
+  turns?: Partial<Record<TurnPhase, number>>;
   /** Whether --mode was explicitly provided on the command line */
   explicitMode?: boolean;
 }
@@ -138,6 +151,8 @@ export interface RunResult {
     scores: CriterionScore[];
   };
   reportPath: string;
+  /** Turn limits in force for this run. */
+  turnLimits?: TurnLimits;
   /** Populated only when outcome === "crashed". */
   error?: string;
   timestamp: string;

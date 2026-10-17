@@ -378,3 +378,17 @@ test("a claim wearing backticks and an angle-bracket suffix is still a claim", (
   const composed = composeReport("## Report\n\n`Result: PASS <ok>`\n", FAILED());
   assertNoSurvivingSuccessClaim(composed);
 });
+
+test("banner shows turn limits only when recorded", () => {
+  const turnLimits = { planner: 75, generator: 100, evaluator: 40, review: 40, specPaths: 15 };
+  const withLimits = composeReport("body\n", result("passed", { turnLimits }));
+  assert.match(withLimits, /\*\*Turn limits:\*\* planner 75/);
+  assert.doesNotMatch(composeReport("body\n", result("passed")), /Turn limits/);
+});
+
+test("report banner shows turn limits only when recorded", () => {
+  const turnLimits = { planner: 75, generator: 100, evaluator: 40, review: 40, specPaths: 15 };
+  const withLimits = composeReport("## Report\n", result("failed", { turnLimits }));
+  assert.match(withLimits, /\*\*Turn limits:\*\* planner 75/);
+  assert.doesNotMatch(composeReport("## Report\n", result("failed")), /Turn limits/);
+});

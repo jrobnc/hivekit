@@ -2,6 +2,7 @@ import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
+import { resolveTurnLimits } from "./turns.js";
 import type { RunContext, PlannerOutput } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -24,13 +25,16 @@ export async function runPlanner(ctx: RunContext): Promise<PlannerOutput> {
     principles: await loadPrinciples(),
   });
 
+  const limits = resolveTurnLimits(config);
   const agentOpts = {
     ...TIERS.plan,
     label: "planner",
     cwd: config.cwd,
     allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
     permissionMode: "acceptEdits" as const,
-    maxTurns: config.maxTurns ?? 30,
+    maxTurns: limits.planner,
+    phase: "planner" as const,
+    specPaths: limits.specPaths,
     onProgress: () => process.stdout.write("."),
   };
 
