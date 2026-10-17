@@ -73,6 +73,7 @@ Each run creates a directory at `.hivekit/runs/<run-id>/` containing:
 - Requires macOS or Linux (the launcher is a bash script).
 - `ANTHROPIC_API_KEY` must be set (Codex does not have Claude Code OAuth).
 - `HARNESS_ALLOW_API_KEY=1` must be set.
+- To run on a non-Claude provider, set `HIVEKIT_PROVIDER` and `HIVEKIT_PROVIDER_CONFIG` (see README → Providers).
 - The `hivekit` CLI must be installed from GitHub:
 
   ```sh

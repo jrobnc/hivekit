@@ -87,7 +87,7 @@ export async function jevYesNo(state: string, question: string): Promise<boolean
   }
 }
 
-// ── Advisor: Fable at three checkpoints, never writes code ──────────
+// ── Advisor: frontier model at three checkpoints, never writes code ──────────
 
 export type Checkpoint = "plan" | "stuck" | "done";
 
