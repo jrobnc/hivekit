@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # `npm ci` also builds and typechecks via the `prepare` script.
+      - run: npm ci
+      # `node --test` exits 0 on skipped/todo tests, so inspect the summary and fail closed if it is missing.
+      - name: Test (fail on skipped/todo)
+        # Explicit `shell: bash` adds `-o pipefail`; the default `bash -e` would let `tee` mask a failing npm test.
+        shell: bash
+        run: |
+          npm test 2>&1 | tee test.log
+          grep -Eq '^(ℹ|#) skipped 0$' test.log || { echo "::error::tests were skipped (or summary missing)"; exit 1; }
+          grep -Eq '^(ℹ|#) todo 0$' test.log || { echo "::error::tests marked todo (or summary missing)"; exit 1; }
+
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+      - run: ./actionlint -color

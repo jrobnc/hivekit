@@ -15,7 +15,7 @@
 write intent · verify by tiers · reconcile to green · Planner → Generator → Evaluator · Claude Max OAuth · Apache-2.0
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
-&nbsp;![Tests](https://img.shields.io/badge/tests-220%20passing-brightgreen)
+&nbsp;[![CI](https://github.com/jrobnc/hivekit/actions/workflows/ci.yml/badge.svg)](https://github.com/jrobnc/hivekit/actions/workflows/ci.yml)
 &nbsp;![Built on](https://img.shields.io/badge/built%20on-Claude%20Agent%20SDK-d97757)
 &nbsp;![Status](https://img.shields.io/badge/status-alpha-orange)
 
