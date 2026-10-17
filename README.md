@@ -238,6 +238,32 @@ exec env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN … node dist/index.js "$@
 
 A top-of-file `delete process.env.ANTHROPIC_API_KEY` would be too late — ES modules are hoisted, so the SDK can resolve credentials before any statement in `src/index.ts` runs. **Invoke the wrapper** (`./bin/hivekit`), not `node dist/index.js`. To deliberately bill API for a run, set `HARNESS_ALLOW_API_KEY=1`. If no OAuth token resolves (`CLAUDE_CODE_OAUTH_TOKEN` unset, macOS Keychain empty or locked, and no `~/.claude/.credentials.json`), the launcher exits 3 with a stderr message instead of starting a run. On Linux and other non-macOS systems the launcher accepts `~/.claude/.credentials.json` (written by `claude /login`); otherwise export `CLAUDE_CODE_OAUTH_TOKEN`.
 
+## Providers
+
+By default every agent runs on Claude through your Max OAuth login, never API billing. An optional second provider, `openai-compatible`, lets the same HIVE.md build run on OpenAI, OpenRouter, Ollama or LM Studio:
+
+```bash
+HIVEKIT_PROVIDER=openai-compatible HIVEKIT_PROVIDER_CONFIG=./provider.json hivekit
+```
+
+```json
+{
+  "name": "openai-compatible",
+  "baseUrl": "http://localhost:11434/v1",
+  "apiKeyEnv": "OPENROUTER_API_KEY",
+  "models": { "frontier": "big-model", "workhorse": "small-model" },
+  "timeoutMs": 300000,
+  "pricesUsdPerMTok": { "big-model": { "input": 3, "output": 15 } }
+}
+```
+
+- Only `frontier` and `workhorse` exist; unknown keys are rejected. Planner, evaluator and advisor use `frontier`; generator and review agents use `workhorse`.
+- Agents get Read, Glob, Grep, Bash, Write and Edit through `POST {baseUrl}/chat/completions` tool calling. Turn caps apply as usual. Read/Write/Edit/Glob/Grep are confined to the run's cwd (symlinks are not resolved); Bash is not sandboxed. Bash runs without `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_*` or the `apiKeyEnv` variable, defaults to a 120 s timeout and is capped at 600 s. Each request times out after `timeoutMs` (default 300000).
+- The API key is read from the env var named in `apiKeyEnv` (omit it for local servers), sent only as a bearer header; error messages include the status and at most 200 chars of the response body (with the key redacted), never headers or the URL query.
+- **Max by default:** the launcher strips `ANTHROPIC_API_KEY` unless `HARNESS_ALLOW_API_KEY=1` is set, and reads the Keychain token only when the provider is `claude`.
+- **No fallback:** a missing or invalid config file stops the run before any phase. A provider error fails that agent call; for the advisor it is reported as "advisor unavailable" and the run continues. hivekit never retries on another provider.
+- Each ledger line records the `provider`.
+
 ## CLI flags
 
 | Flag | Values | Default | Description |
@@ -276,6 +302,8 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `HARNESS_ALLOW_API_KEY` | any non-empty value | unset | Opts out of that strip for one run: `ANTHROPIC_API_KEY` is passed through (metered API billing) and the launcher prints a warning to stderr. |
 | `HARNESS_DEBUG` | any non-empty value | unset | Per-message agent tracing — logs `[agent] msg#N type=…` to stderr for every SDK message, in every phase. |
 | `HIVEKIT_ALLOW_NO_TOKEN` | any non-empty value | unset | Skips the launcher's no-OAuth-token check (tests/CI only). |
+| `HIVEKIT_PROVIDER` | `claude`, `openai-compatible` | `claude` | Which provider runs the agents; see [Providers](#providers). Unknown values fail the run. |
+| `HIVEKIT_PROVIDER_CONFIG` | file path | unset | JSON config, required for `openai-compatible`. |
 | `HIVEKIT_LANE` | string | `""` | Written to every ledger line as `lane`, so spend can be grouped. |
 | `HIVEKIT_ADVISOR` | `0` to disable | enabled | Controls the Fable advisor checkpoints (plan, stuck, done). Set to `0` to skip all advisor and Jev calls. |
 | `HIVEKIT_*_TURNS`, `HIVEKIT_MAX_TURNS` | integer | unset | Per-phase and global turn caps; see [Turn limits](#turn-limits). |
@@ -289,7 +317,7 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 
 `CLAUDE_CODE_OAUTH_TOKEN` is deliberately left untouched — it is the Claude Max credential that subprocess authenticates with.
 
-Every `runAgent` call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, model, effort, usd, ms, cwd, maxTurns, error, runId, phase, turns, usage{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}, lane`) for cost tracking and auditability.
+Every `runAgent` call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, model, provider, effort, usd, ms, cwd, maxTurns, error, runId, phase, turns, usage{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}, lane`) for cost tracking and auditability.
 
 ## Under the hood — the implementation path
 

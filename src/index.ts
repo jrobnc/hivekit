@@ -23,6 +23,7 @@ import {
   indexStatusFor,
   isSuccessOutcome,
 } from "./outcome.js";
+import { getProvider } from "./providers/index.js";
 import { resolveTurnLimits, describeTurnLimits } from "./turns.js";
 import type {
   HarnessConfig,
@@ -464,6 +465,9 @@ async function finalizeRun(
 async function main(): Promise<RunOutcome> {
   const config = parseArgs(process.argv);
   const intent = await resolveIntent(config);
+
+  // Fail before any phase on a bad provider config; there is no fallback to another provider.
+  try { getProvider(); } catch (err) { console.error(`Error: ${err instanceof Error ? err.message : err}`); process.exit(1); }
 
   console.log(`
 ┌─────────────────────────────────────────────┐

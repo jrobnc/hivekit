@@ -217,6 +217,22 @@ test("bin/hivekit proceeds when ~/.claude/.credentials.json exists (non-macOS)",
   assert.ok(proc.stdout.includes("PATH="));
 });
 
+test("bin/hivekit skips the token check for a non-claude provider but still strips ANTHROPIC_API_KEY", () => {
+  const proc = runLauncherNoToken({ HIVEKIT_PROVIDER: "openai-compatible", ANTHROPIC_API_KEY: "sk-test" });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(proc.stdout.includes("PATH="), "node must have been exec'd");
+  assert.ok(!proc.stdout.includes("ANTHROPIC_API_KEY="));
+});
+
+test("bin/hivekit does not read the Keychain for a non-claude provider", () => {
+  const proc = runLauncherNoToken({ HIVEKIT_PROVIDER: "openai-compatible" }, {
+    security: `#!/usr/bin/env bash\necho '{"claudeAiOauth":{"accessToken":"kc-secret"}}'\n`,
+  });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(proc.stdout.includes("PATH="));
+  assert.ok(!proc.stdout.includes("kc-secret"));
+});
+
 test("bin/hivekit proceeds when the Keychain holds a token but never exports it (rotation safety)", () => {
   const proc = runLauncherNoToken({}, {
     security: `#!/usr/bin/env bash\necho '{"claudeAiOauth":{"accessToken":"kc-secret-token"}}'\n`,

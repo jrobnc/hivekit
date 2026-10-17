@@ -66,3 +66,21 @@ test("missing runId, phase, lane, turns and usage default to empty/zero", async 
   });
   assert.equal(line.lane, "");
 });
+
+test("ledger line keys are today's keys plus provider; default role is claude opus", async () => {
+  await runAgent({ prompt: "bare", label: "t", cwd: "/tmp" }); // cwd undefined would drop the key from JSON
+  const line = lastLine();
+  assert.equal(line.provider, "claude");
+  assert.equal(line.model, "opus");
+  assert.deepEqual(
+    Object.keys(line).sort(),
+    "ts,label,model,provider,effort,usd,ms,cwd,maxTurns,error,runId,phase,turns,usage,lane".split(",").sort()
+  );
+});
+
+test("role advise resolves to fable; model overrides on claude", async () => {
+  await runAgent({ prompt: "bare", label: "t", role: "advise" });
+  assert.equal(lastLine().model, "fable");
+  await runAgent({ prompt: "bare", label: "t", model: "x" });
+  assert.equal(lastLine().model, "x");
+});

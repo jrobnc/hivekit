@@ -1,11 +1,11 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { readFile, appendFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { turnCapMessage } from "./turns.js";
 import type { TurnPhase } from "./types.js";
+import { getProvider } from "./providers/index.js";
+import type { Effort, Role, ProviderRunOutput } from "./providers/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -32,32 +32,35 @@ export function positiveNumber(raw: string | undefined): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-export type Effort = "low" | "medium" | "high" | "max";
+export type { Effort };
 
 /**
- * Model tier per role. Aliases, not pinned ids, so each new release is picked up.
- * Opus plans and judges, Sonnet does the volume, Fable only at advisor checkpoints.
+ * Role and effort per agent job. The active provider maps each role to a concrete
+ * model: a frontier model plans, judges and advises, a workhorse does the volume.
  */
 export const TIERS = {
-  plan: { model: "opus", effort: "high" },
-  build: { model: "sonnet", effort: "medium" },
-  review: { model: "sonnet", effort: "medium" },
-  evaluate: { model: "opus", effort: "high" },
-  advise: { model: "fable", effort: "high" },
-} as const satisfies Record<string, { model: string; effort: Effort }>;
+  plan: { role: "plan", effort: "high" },
+  build: { role: "build", effort: "medium" },
+  review: { role: "review", effort: "medium" },
+  evaluate: { role: "evaluate", effort: "high" },
+  advise: { role: "advise", effort: "high" },
+} as const satisfies Record<string, { role: Role; effort: Effort }>;
 
 /** Cost ledger. HIVEKIT_LEDGER points it elsewhere (the test suite uses a throwaway file). */
 export const LEDGER = process.env.HIVEKIT_LEDGER || join(homedir(), ".cache", "hivekit", "ledger.jsonl");
 
 export interface AgentOptions {
   prompt: string;
+  /** Which provider model tier to use; defaults to "plan" */
+  role?: Role;
+  /** Claude-only override; ignored by other providers */
   model?: string;
   effort?: Effort;
   /** Ledger label, e.g. "planner" or "generator-r2" */
   label?: string;
   cwd?: string;
   allowedTools?: string[];
-  permissionMode?: PermissionMode;
+  permissionMode?: string;
   maxTurns?: number;
   /** Phase name; when set, a max-turns stop throws a named cap-hit error */
   phase?: TurnPhase | "advisor";
@@ -81,65 +84,34 @@ export interface AgentResult {
  * Abstracts away the SDK message stream into a simple async function.
  */
 export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
-  const sdkOpts: Options = {
-    model: opts.model ?? "opus",
-    cwd: opts.cwd,
-    allowedTools: opts.allowedTools ?? ["Read", "Glob", "Grep", "Bash"],
-    permissionMode: opts.permissionMode ?? "acceptEdits",
-    maxTurns: opts.maxTurns ?? 30,
-    effort: opts.effort,
-    // ponytail: one optional per-agent cap; per-run caps when the ledger shows a need
-    maxBudgetUsd: positiveNumber(process.env.HIVEKIT_MAX_USD_PER_AGENT),
-  };
+  const provider = getProvider();
+  const role = opts.role ?? "plan";
+  const model = provider.name === "claude" && opts.model ? opts.model : provider.modelFor(role);
+  const maxTurns = opts.maxTurns ?? 30;
 
-  let result = "";
-  let sessionId = "";
-  let durationMs = 0;
-  let totalCostUsd = 0;
-  let isError = false;
-  let subtype: string | undefined;
-  let turns = 0;
-  let usage: Record<string, unknown> | undefined;
+  let out: ProviderRunOutput | undefined;
   let thrown: unknown;
-
-  let messageCount = 0;
   try {
-    for await (const message of query({ prompt: opts.prompt, options: sdkOpts })) {
-      messageCount++;
-
-      // Log message types for debugging
-      if (process.env.HARNESS_DEBUG) {
-        const msg = message as Record<string, unknown>;
-        console.error(`  [agent] msg#${messageCount} type=${msg.type}`);
-      }
-
-      // Progress indicator for assistant messages
-      if (message.type === "assistant" && opts.onProgress) {
-        opts.onProgress(".");
-      }
-
-      // Capture the final result
-      if (message.type === "result") {
-        const msg = message as Record<string, unknown>;
-        result = (msg.result as string) ?? "";
-        sessionId = (msg.session_id as string) ?? "";
-        durationMs = (msg.duration_ms as number) ?? 0;
-        totalCostUsd = (msg.total_cost_usd as number) ?? 0;
-        isError = (msg.is_error as boolean) ?? false;
-        subtype = msg.subtype as string | undefined;
-        turns = (msg.num_turns as number) ?? 0;
-        usage = msg.usage as Record<string, unknown> | undefined;
-      }
-    }
+    out = await provider.run({
+      prompt: opts.prompt,
+      model,
+      effort: opts.effort,
+      cwd: opts.cwd,
+      allowedTools: opts.allowedTools ?? ["Read", "Glob", "Grep", "Bash"],
+      permissionMode: opts.permissionMode ?? "acceptEdits",
+      maxTurns,
+      maxBudgetUsd: positiveNumber(process.env.HIVEKIT_MAX_USD_PER_AGENT),
+      onProgress: opts.onProgress,
+    });
+    thrown = out.thrown;
   } catch (err) {
     thrown = err;
   }
-
-  if (messageCount === 0) {
-    console.warn("[agent] WARNING: No messages received from SDK query");
-  } else {
-    console.log(`  [agent] ${messageCount} messages, ${Math.round(durationMs / 1000)}s, $${totalCostUsd.toFixed(2)}`);
-  }
+  const result = out?.result ?? "";
+  const isError = out?.isError ?? false;
+  const subtype = out?.subtype;
+  const durationMs = out?.durationMs ?? 0;
+  const totalCostUsd = out?.totalCostUsd ?? 0;
 
   // The ledger is bookkeeping: an unwritable ~/.cache must never crash a run before result.json exists.
   try {
@@ -149,21 +121,22 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
       JSON.stringify({
         ts: new Date().toISOString(),
         label: opts.label ?? "agent",
-        model: sdkOpts.model,
+        model,
+        provider: provider.name,
         effort: opts.effort ?? null,
         usd: totalCostUsd,
         ms: durationMs,
         cwd: opts.cwd,
-        maxTurns: sdkOpts.maxTurns,
+        maxTurns,
         error: isError || thrown !== undefined,
         runId: opts.runId ?? "",
         phase: opts.phase ?? "",
-        turns,
+        turns: out?.turns ?? 0,
         usage: {
-          input_tokens: Number(usage?.input_tokens ?? 0),
-          output_tokens: Number(usage?.output_tokens ?? 0),
-          cache_read_input_tokens: Number(usage?.cache_read_input_tokens ?? 0),
-          cache_creation_input_tokens: Number(usage?.cache_creation_input_tokens ?? 0),
+          input_tokens: out?.usage.input_tokens ?? 0,
+          output_tokens: out?.usage.output_tokens ?? 0,
+          cache_read_input_tokens: out?.usage.cache_read_input_tokens ?? 0,
+          cache_creation_input_tokens: out?.usage.cache_creation_input_tokens ?? 0,
         },
         lane: process.env.HIVEKIT_LANE ?? "",
       }) + "\n",
@@ -176,14 +149,14 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   const thrownMsg = thrown === undefined ? undefined : (thrown as Error)?.message ?? String(thrown);
   const capHit = subtype === "error_max_turns" || /maximum number of turns/i.test(thrownMsg ?? (isError ? result : ""));
   if (capHit && opts.phase && opts.phase !== "advisor") {
-    throw new Error(turnCapMessage(opts.phase, sdkOpts.maxTurns!, opts.phase === "planner" ? opts.specPaths : undefined));
+    throw new Error(turnCapMessage(opts.phase, maxTurns, opts.phase === "planner" ? opts.specPaths : undefined));
   }
   if (thrown !== undefined) throw thrown;
   if (isError) {
     throw new Error(`Agent failed: ${result}`);
   }
 
-  return { result, sessionId, durationMs, totalCostUsd };
+  return { result, sessionId: out?.sessionId ?? "", durationMs, totalCostUsd };
 }
 
 /**
