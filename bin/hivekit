@@ -66,19 +66,21 @@ done
 # launch. (A shell-wide export, the old ~/.zshenv approach, froze a token that
 # expires in hours and forced /login on every Claude Code session.) An explicitly
 # set variable is a deliberate override (CI, tests) and is left alone.
+# The Keychain is only CHECKED here, never exported: a pinned access token is revoked the
+# moment any other Claude session rotates the credential (seen 2026-10-17: two runs died
+# mid-phase with "OAuth token revoked" at the exact minute the Keychain entry refreshed).
+# The Agent SDK reads the Keychain itself on each call and follows the rotation.
+keychain_token=""
 if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && command -v security >/dev/null 2>&1; then
-  fresh_token="$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
-    | python3 -c "import sys,json; t=json.load(sys.stdin)['claudeAiOauth']['accessToken']; print(t if isinstance(t,str) else '', end='')" 2>/dev/null || true)"
-  if [[ -n "$fresh_token" ]]; then
-    export CLAUDE_CODE_OAUTH_TOKEN="$fresh_token"
-  fi
+  keychain_token="$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
+    | python3 -c "import sys,json; t=json.load(sys.stdin)['claudeAiOauth']['accessToken']; print('present' if isinstance(t,str) and t else '', end='')" 2>/dev/null || true)"
 fi
 
 # Fail fast when no Max OAuth token resolved: without one the Agent SDK can fall back
 # to metered API billing or die mid-run. HARNESS_ALLOW_API_KEY is the deliberate
 # API-billing override; HIVEKIT_ALLOW_NO_TOKEN is for tests/CI only. A
 # ~/.claude/.credentials.json file (Linux/no-Keychain login) also counts as a token source.
-if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "${HARNESS_ALLOW_API_KEY:-}" && -z "${HIVEKIT_ALLOW_NO_TOKEN:-}" && ! -f "${HOME:-}/.claude/.credentials.json" ]]; then
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "$keychain_token" && -z "${HARNESS_ALLOW_API_KEY:-}" && -z "${HIVEKIT_ALLOW_NO_TOKEN:-}" && ! -f "${HOME:-}/.claude/.credentials.json" ]]; then
   echo "[hivekit] ERROR: no Claude Max OAuth token found (checked CLAUDE_CODE_OAUTH_TOKEN, the macOS Keychain, ~/.claude/.credentials.json). Run \`claude /login\`, or set CLAUDE_CODE_OAUTH_TOKEN. (HIVEKIT_ALLOW_NO_TOKEN=1 skips this check, for tests/CI only.)" >&2
   exit 3
 fi
