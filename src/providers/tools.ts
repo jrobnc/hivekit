@@ -1,9 +1,9 @@
 import { exec } from "child_process";
 import { mkdir, readdir, readFile, stat, writeFile } from "fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 type Args = Record<string, any>;
-interface Ctx { cwd?: string; allowedTools: string[] }
+interface Ctx { cwd?: string; allowedTools: string[]; apiKeyEnv?: string }
 
 const str = (description: string) => ({ type: "string", description });
 const def = (name: string, description: string, properties: Args, required: string[]) => ({
@@ -51,8 +51,14 @@ async function walk(root: string): Promise<string[]> {
   return out.sort();
 }
 
-async function run(name: string, a: Args, cwd: string): Promise<string> {
-  const p = (x: string) => (isAbsolute(x) ? x : resolve(cwd, x));
+async function run(name: string, a: Args, cwd: string, apiKeyEnv?: string): Promise<string> {
+  const root = resolve(cwd);
+  const p = (x: string) => {
+    const r = resolve(root, String(x));
+    const rel = relative(root, r);
+    if (rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel)) throw new Error(`path outside cwd: ${x}`);
+    return r;
+  };
   switch (name) {
     case "Read": {
       const lines = (await readFile(p(a.file_path), "utf-8")).split("\n");
@@ -95,9 +101,15 @@ async function run(name: string, a: Args, cwd: string): Promise<string> {
       return hits.join("\n");
     }
     case "Bash": {
-      const timeout = Math.min(Number(a.timeout ?? 120_000), 600_000);
+      const t = Number(a.timeout);
+      const timeout = Number.isFinite(t) && t >= 1 ? Math.min(Math.floor(t), 600_000) : 120_000;
       return new Promise((res) =>
-        exec(String(a.command), { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+        exec(String(a.command), {
+          cwd,
+          timeout,
+          maxBuffer: 10 * 1024 * 1024,
+          env: Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== apiKeyEnv && k !== "CLAUDE_CODE_OAUTH_TOKEN" && !k.startsWith("ANTHROPIC_"))),
+        }, (err, stdout, stderr) => {
           const code = err ? (typeof err.code === "number" ? err.code : err.killed ? "timeout" : "error") : 0;
           res(truncate(`exit code: ${code}\n${stdout}${stderr ? `\nstderr:\n${stderr}` : ""}`, 30_000));
         })
@@ -118,7 +130,7 @@ export async function runTool(name: string, argsJson: string, ctx: Ctx): Promise
     return `Error: invalid JSON arguments for ${name}: ${(err as Error).message}`;
   }
   try {
-    return await run(name, args, ctx.cwd ?? process.cwd());
+    return await run(name, args, ctx.cwd ?? process.cwd(), ctx.apiKeyEnv);
   } catch (err) {
     return `Error: ${err instanceof Error ? err.message : err}`;
   }

@@ -80,6 +80,13 @@ test("auth header only when apiKeyEnv is set; missing env var names the var, not
   } finally { delete process.env.HK_TEST_KEY; await srv.close(); }
 });
 
+test("a hung server is aborted after timeoutMs", async () => {
+  const srv = await startFakeOpenAI(() => ({ hang: true }));
+  try {
+    await assert.rejects(mk(srv.url, { timeoutMs: 50 }).run(input()), /openai-compatible.*timed out after 50ms/);
+  } finally { await srv.close(); }
+});
+
 test("non-2xx throws with status and at most 200 chars of body", async () => {
   const srv = await startFakeOpenAI(() => ({ status: 500, text: "B".repeat(1000) }));
   try {
@@ -91,13 +98,37 @@ test("non-2xx throws with status and at most 200 chars of body", async () => {
   } finally { await srv.close(); }
 });
 
-test("preflight succeeds on 200 and rejects otherwise", async () => {
-  const ok = await startFakeOpenAI(() => ({ data: [] }));
-  const bad = await startFakeOpenAI(() => ({ status: 401, text: "no" }));
+test("200 with an error body and no choices surfaces the provider message", async () => {
+  const srv = await startFakeOpenAI(() => ({ error: { message: "quota" } }));
   try {
-    await mk(ok.url).preflight();
-    await assert.rejects(mk(bad.url).preflight(), /preflight.*401/);
-  } finally { await ok.close(); await bad.close(); }
+    await assert.rejects(mk(srv.url).run(input()), /no choices\[0\]\.message: quota/);
+  } finally { await srv.close(); }
+});
+
+test("Bash child env has no OAuth token, ANTHROPIC_*, or apiKeyEnv value", async () => {
+  const saved = { ...process.env };
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-x";
+  process.env.ANTHROPIC_API_KEY = "ak-x";
+  process.env.HK_SECRET = "k-x";
+  try {
+    const out = await runTool("Bash", '{"command":"env"}', { cwd: tmp(), allowedTools: ["Bash"], apiKeyEnv: "HK_SECRET" });
+    for (const v of ["oauth-x", "ak-x", "k-x"]) assert.ok(!out.includes(v), `${v} leaked`);
+    assert.match(out, /PATH=/);
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  }
+});
+
+test("file tools refuse paths outside cwd", async () => {
+  const dir = tmp();
+  const ctx = { cwd: join(dir, "work"), allowedTools: ["Read", "Write", "Glob"] };
+  await runTool("Write", JSON.stringify({ file_path: "ok.txt", content: "x" }), ctx);
+  assert.match(await runTool("Read", '{"file_path":"/etc/hosts"}', ctx), /^Error: path outside cwd/);
+  assert.match(await runTool("Write", '{"file_path":"../escape.txt","content":"x"}', ctx), /^Error: path outside cwd/);
+  assert.ok(!existsSync(join(dir, "escape.txt")));
+  assert.match(await runTool("Glob", '{"pattern":"*","path":".."}', ctx), /^Error: path outside cwd/);
+  assert.equal(await runTool("Glob", '{"pattern":"*"}', ctx), "ok.txt");
 });
 
 test("tools: Read, Write, Edit, Glob, Grep, Bash", async () => {
@@ -114,6 +145,7 @@ test("tools: Read, Write, Edit, Glob, Grep, Bash", async () => {
   assert.match(await t("Grep", { pattern: "^2$" }), /sub\/a\.txt:2:2/);
   assert.match(await t("Bash", { command: "echo hello" }), /exit code: 0\nhello/);
   assert.match(await t("Bash", { command: "sleep 5", timeout: 100 }), /exit code: timeout/);
+  for (const timeout of [0, -5, "abc"]) assert.match(await t("Bash", { command: "echo ok", timeout }), /exit code: 0\nok/);
   assert.match(await t("Read", { file_path: "missing" }), /^Error:/);
   assert.match(await runTool("Read", "{bad", ctx), /^Error: invalid JSON/);
 });
@@ -123,7 +155,7 @@ test("getProvider config validation", () => {
   const good = join(dir, "good.json");
   writeFileSync(good, JSON.stringify({
     name: "openai-compatible", baseUrl: "http://localhost:11434/v1",
-    apiKeyEnv: "OPENROUTER_API_KEY", models: { frontier: "a", workhorse: "b", cheap: "c" },
+    apiKeyEnv: "OPENROUTER_API_KEY", models: { frontier: "a", workhorse: "b" },
     pricesUsdPerMTok: { a: { input: 1, output: 2 } },
   }));
   const p = getProvider({ HIVEKIT_PROVIDER: "openai-compatible", HIVEKIT_PROVIDER_CONFIG: good });
@@ -139,5 +171,28 @@ test("getProvider config validation", () => {
   assert.throws(() => getProvider(env("/no/such.json")), /cannot read.*\/no\/such\.json/);
   assert.throws(() => getProvider(env(badJson)), /bad\.json is not valid JSON/);
   assert.throws(() => getProvider(env(badUrl)), /url\.json[\s\S]*baseUrl/);
+  const bad = (name, over) => {
+    const f = join(dir, name);
+    writeFileSync(f, JSON.stringify({ name: "openai-compatible", baseUrl: "http://x/v1", models: { frontier: "a", workhorse: "b" }, ...over }));
+    return env(f);
+  };
+  assert.throws(() => getProvider(bad("typo.json", { apikeyEnv: "K" })), /apikeyEnv/);
+  assert.throws(() => getProvider(bad("file.json", { baseUrl: "file:///tmp/x" })), /baseUrl/);
+  assert.throws(() => getProvider(bad("cheap.json", { models: { frontier: "a", workhorse: "b", cheap: "c" } })), /cheap/);
   assert.throws(() => getProvider({ HIVEKIT_PROVIDER: "bogus" }), /unknown HIVEKIT_PROVIDER "bogus"/);
+});
+
+test("auth header and query secrets never reach the error text", async () => {
+  process.env.HK_TEST_KEY = "sekret-123";
+  const srv = await startFakeOpenAI((_b, _i, req) => ({ status: 401, text: `bad key ${req.headers.authorization}` }));
+  try {
+    const p = createOpenAICompatibleProvider({
+      name: "openai-compatible", baseUrl: srv.url + "?token=qsecret", apiKeyEnv: "HK_TEST_KEY",
+      models: { frontier: "a", workhorse: "b" },
+    });
+    await assert.rejects(
+      p.run({ prompt: "p", model: "a", allowedTools: [], permissionMode: "acceptEdits", maxTurns: 1 }),
+      (e) => /401/.test(e.message) && !e.message.includes("sekret-123") && !e.message.includes("qsecret")
+    );
+  } finally { delete process.env.HK_TEST_KEY; await srv.close(); }
 });

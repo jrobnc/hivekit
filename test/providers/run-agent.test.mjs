@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,10 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { startFakeOpenAI, reply, toolCall } from "../helpers/fake-openai.mjs";
 
+const queryCalls = [];
+mock.module("@anthropic-ai/claude-agent-sdk", {
+  namedExports: { query: (...a) => { queryCalls.push(a); return (async function* () {})(); } },
+});
 const dir = mkdtempSync(join(tmpdir(), "hivekit-runagent-"));
 const ledger = join(dir, "ledger.jsonl");
 process.env.HIVEKIT_LEDGER = ledger; // LEDGER is fixed at load, so set before the import
@@ -58,4 +62,17 @@ test("bad provider config stops the run before any phase", () => {
     assert.ok(r.stderr.includes(needle), r.stderr);
     assert.ok(!r.stdout.includes("Phase 1"));
   }
+});
+
+test("a failing openai-compatible provider never falls back to the Claude SDK", async () => {
+  const srv = await startFakeOpenAI(() => ({ status: 500, text: "boom" }));
+  try {
+    await assert.rejects(withProvider(config(srv.url), () => runAgent({ ...TIERS.build, prompt: "p" })), /openai-compatible.*500/);
+  } finally { await srv.close(); }
+  assert.equal(queryCalls.length, 0);
+  const closed = await startFakeOpenAI(() => reply({ role: "assistant", content: "x" }));
+  const deadUrl = closed.url;
+  await closed.close();
+  await assert.rejects(withProvider(config(deadUrl), () => runAgent({ ...TIERS.build, prompt: "p" })), /openai-compatible/);
+  assert.equal(queryCalls.length, 0);
 });

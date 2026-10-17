@@ -30,6 +30,8 @@ export interface ProviderRunOutput {
     cache_creation_input_tokens: number;
   };
   model: string;
+  /** Set when the stream threw after (possibly) yielding a result; runAgent rethrows it. */
+  thrown?: unknown;
 }
 
 export interface Provider {
@@ -37,5 +39,4 @@ export interface Provider {
   readonly name: string;
   modelFor(role: Role): string;
   run(input: ProviderRunInput): Promise<ProviderRunOutput>;
-  preflight(): Promise<void>;
 }

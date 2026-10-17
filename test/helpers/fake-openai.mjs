@@ -18,6 +18,8 @@ export async function startFakeOpenAI(responder) {
       const body = data ? JSON.parse(data) : null;
       requests.push({ url: req.url, method: req.method, headers: req.headers, body });
       const out = responder(body, requests.length - 1, req);
+      if (out && out.hang) return; // never respond
+      if (out?.hang) return; // never answer
       if (out && out.status) {
         res.writeHead(out.status).end(out.text ?? "");
       } else {

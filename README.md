@@ -251,16 +251,17 @@ HIVEKIT_PROVIDER=openai-compatible HIVEKIT_PROVIDER_CONFIG=./provider.json hivek
   "name": "openai-compatible",
   "baseUrl": "http://localhost:11434/v1",
   "apiKeyEnv": "OPENROUTER_API_KEY",
-  "models": { "frontier": "big-model", "workhorse": "small-model", "cheap": "tiny-model" },
+  "models": { "frontier": "big-model", "workhorse": "small-model" },
+  "timeoutMs": 300000,
   "pricesUsdPerMTok": { "big-model": { "input": 3, "output": 15 } }
 }
 ```
 
-- Only `frontier` and `workhorse` are used (`cheap` is accepted but ignored). Planner, evaluator and advisor use `frontier`; generator and review agents use `workhorse`.
-- Agents get Read, Glob, Grep, Bash, Write and Edit through `POST {baseUrl}/chat/completions` tool calling. Turn caps apply as usual.
-- The API key is read from the env var named in `apiKeyEnv` (omit it for local servers), sent only as a bearer header and never logged.
-- **Max only:** the launcher still strips `ANTHROPIC_API_KEY`; hivekit never bills Claude work to an API key.
-- **No fallback:** a missing or invalid config stops the run before any phase, and a failing provider fails the run. hivekit never retries on another provider.
+- Only `frontier` and `workhorse` exist; unknown keys are rejected. Planner, evaluator and advisor use `frontier`; generator and review agents use `workhorse`.
+- Agents get Read, Glob, Grep, Bash, Write and Edit through `POST {baseUrl}/chat/completions` tool calling. Turn caps apply as usual. Read/Write/Edit/Glob/Grep are confined to the run's cwd (symlinks are not resolved); Bash is not sandboxed. Bash runs without `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_*` or the `apiKeyEnv` variable, defaults to a 120 s timeout and is capped at 600 s. Each request times out after `timeoutMs` (default 300000).
+- The API key is read from the env var named in `apiKeyEnv` (omit it for local servers), sent only as a bearer header; error messages include the status and at most 200 chars of the response body (with the key redacted), never headers or the URL query.
+- **Max by default:** the launcher strips `ANTHROPIC_API_KEY` unless `HARNESS_ALLOW_API_KEY=1` is set, and reads the Keychain token only when the provider is `claude`.
+- **No fallback:** a missing or invalid config file stops the run before any phase. A provider error fails that agent call; for the advisor it is reported as "advisor unavailable" and the run continues. hivekit never retries on another provider.
 - Each ledger line records the `provider`.
 
 ## CLI flags

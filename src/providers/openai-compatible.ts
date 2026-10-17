@@ -5,13 +5,14 @@ import type { Provider, ProviderRunInput, ProviderRunOutput, Role } from "./type
 
 export const OpenAICompatibleConfigSchema = z.object({
   name: z.literal("openai-compatible"),
-  baseUrl: z.string().url(),
+  baseUrl: z.string().url().refine((u) => /^https?:\/\//i.test(u), "baseUrl must be http(s)"),
   apiKeyEnv: z.string().min(1).optional(),
-  models: z.object({ frontier: z.string().min(1), workhorse: z.string().min(1) }),
+  timeoutMs: z.number().int().positive().optional(),
+  models: z.object({ frontier: z.string().min(1), workhorse: z.string().min(1) }).strict(),
   pricesUsdPerMTok: z
     .record(z.string(), z.object({ input: z.number().nonnegative(), output: z.number().nonnegative() }))
     .optional(),
-});
+}).strict();
 export type OpenAICompatibleConfig = z.infer<typeof OpenAICompatibleConfigSchema>;
 
 /** Mirrors Claude's split: frontier plans/judges/advises, workhorse does the volume. */
@@ -44,7 +45,10 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleConfig): 
     // effort and permissionMode have no equivalent here and are ignored.
     async run(input: ProviderRunInput): Promise<ProviderRunOutput> {
       const started = Date.now();
+      const timeoutMs = config.timeoutMs ?? 300_000;
       const url = `${base}/chat/completions`;
+      const shown = (() => { const u = new URL(url); return u.origin + u.pathname; })();
+      const redact = (s: string) => { const k = config.apiKeyEnv && process.env[config.apiKeyEnv]; return (k ? s.split(k).join("[redacted]") : s).slice(0, 200); };
       const tools = TOOL_DEFS.filter((t) => input.allowedTools.includes(t.function.name));
       const messages: any[] = [{ role: "user", content: input.prompt }];
       const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
@@ -66,17 +70,27 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleConfig): 
       });
 
       while (turns < input.maxTurns) {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({ model: input.model, messages, ...(tools.length ? { tools } : {}) }),
-        });
-        if (!res.ok) {
-          throw new Error(`openai-compatible: POST ${url} → ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        let body: any;
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ model: input.model, messages, ...(tools.length ? { tools } : {}) }),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (!res.ok) throw new Error(`openai-compatible: POST ${shown} → ${res.status}: ${redact(await res.text())}`);
+          body = await res.json();
+        } catch (err: any) {
+          if (String(err?.message).startsWith("openai-compatible:")) throw err;
+          if (err?.name === "TimeoutError") throw new Error(`openai-compatible: POST ${shown} timed out after ${timeoutMs}ms`);
+          if (err?.name === "SyntaxError") throw new Error(`openai-compatible: POST ${shown} returned invalid JSON`);
+          // Not err.message: undici messages can contain the full URL.
+          throw new Error(`openai-compatible: POST ${shown} failed: ${err?.cause?.code ?? err?.name}`);
         }
-        const body: any = await res.json();
         const message = body?.choices?.[0]?.message;
-        if (!message) throw new Error(`openai-compatible: POST ${url} returned no choices[0].message`);
+        if (!message) {
+          throw new Error(`openai-compatible: POST ${shown} returned no choices[0].message${body?.error?.message ? ": " + redact(String(body.error.message)) : ""}`);
+        }
         turns++;
         input.onProgress?.(".");
         usage.input_tokens += Number(body.usage?.prompt_tokens ?? 0);
@@ -90,6 +104,7 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleConfig): 
           const content = await runTool(call.function?.name, call.function?.arguments, {
             cwd: input.cwd,
             allowedTools: input.allowedTools,
+            apiKeyEnv: config.apiKeyEnv,
           });
           messages.push({ role: "tool", tool_call_id: call.id, content });
         }
@@ -98,17 +113,6 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleConfig): 
         }
       }
       return out({ isError: true, subtype: "error_max_turns" });
-    },
-
-    async preflight() {
-      const url = `${base}/models`;
-      let status: number | string;
-      try {
-        status = (await fetch(url, { headers: headers() })).status;
-      } catch (err) {
-        status = err instanceof Error ? err.message : String(err);
-      }
-      if (status !== 200) throw new Error(`openai-compatible preflight: ${url} → ${status}`);
     },
   };
 }

@@ -66,7 +66,8 @@ done
 # launch. (A shell-wide export, the old ~/.zshenv approach, froze a token that
 # expires in hours and forced /login on every Claude Code session.) An explicitly
 # set variable is a deliberate override (CI, tests) and is left alone.
-if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && command -v security >/dev/null 2>&1; then
+# Keychain is read only for the claude provider; other providers must never see the token.
+if [[ "${HIVEKIT_PROVIDER:-claude}" == "claude" && -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && command -v security >/dev/null 2>&1; then
   fresh_token="$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
     | python3 -c "import sys,json; t=json.load(sys.stdin)['claudeAiOauth']['accessToken']; print(t if isinstance(t,str) else '', end='')" 2>/dev/null || true)"
   if [[ -n "$fresh_token" ]]; then

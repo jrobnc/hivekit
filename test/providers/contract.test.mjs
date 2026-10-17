@@ -1,16 +1,21 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startFakeOpenAI, reply } from "../helpers/fake-openai.mjs";
+import { startFakeOpenAI, reply, toolCall } from "../helpers/fake-openai.mjs";
 
+// The claude side proves plumbing (cwd/allowedTools/usage forwarding), not the real CLI.
+const seen = [];
 mock.module("@anthropic-ai/claude-agent-sdk", {
   namedExports: {
-    query: async function* () {
+    query: async function* ({ prompt, options }) {
+      seen.push(options);
+      const content = readFileSync(join(options.cwd, "golden.txt"), "utf-8");
       yield { type: "assistant" };
       yield {
-        type: "result", subtype: "success", is_error: false, result: "fine", session_id: "s1",
+        type: "result", subtype: "success", is_error: false, result: "answer: " + content, session_id: "s1",
         total_cost_usd: 0.01, num_turns: 2,
         usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 },
       };
@@ -22,8 +27,15 @@ const { createOpenAICompatibleProvider } = await import("../../dist/providers/op
 
 const ROLES = ["plan", "build", "review", "evaluate", "advise"];
 
-test("both providers satisfy the same Provider contract", async () => {
-  const srv = await startFakeOpenAI(() => reply({ role: "assistant", content: "fine" }));
+test("both providers complete the same golden Read task", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hivekit-contract-"));
+  const token = randomUUID();
+  writeFileSync(join(dir, "golden.txt"), token);
+  const srv = await startFakeOpenAI((body, i) => {
+    if (i === 0) return reply(toolCall("Read", { file_path: "golden.txt" }));
+    const toolMsg = body.messages.find((m) => m.role === "tool");
+    return reply({ role: "assistant", content: `answer: ${toolMsg.content}` });
+  });
   try {
     const oai = createOpenAICompatibleProvider({
       name: "openai-compatible", baseUrl: srv.url, models: { frontier: "big", workhorse: "small" },
@@ -31,44 +43,19 @@ test("both providers satisfy the same Provider contract", async () => {
     for (const p of [claudeProvider, oai]) {
       for (const r of ROLES) assert.ok(p.modelFor(r).length > 0, `${p.name} modelFor(${r})`);
       const out = await p.run({
-        prompt: "go", model: p.modelFor("build"), allowedTools: ["Read"], permissionMode: "acceptEdits", maxTurns: 3,
+        prompt: "Read golden.txt and repeat it", model: p.modelFor("build"), cwd: dir,
+        allowedTools: ["Read"], permissionMode: "acceptEdits", maxTurns: 3,
       });
-      assert.ok(out.result.length > 0, p.name);
-      assert.ok(out.turns >= 1, p.name);
-      for (const k of ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]) {
-        assert.equal(typeof out.usage[k], "number", `${p.name} ${k}`);
-      }
-      assert.ok(out.model.length > 0);
-      assert.equal(out.isError, false);
-      assert.equal(typeof out.sessionId, "string");
+      assert.ok(out.result.includes(token), `${p.name} result`);
+      assert.equal(out.isError, false, p.name);
     }
+    assert.deepEqual(srv.requests[0].body.tools.map((t) => t.function.name), ["Read"]);
+    assert.equal(srv.requests.length, 2);
+    assert.ok(seen[0].allowedTools.includes("Read"));
+    assert.equal(seen[0].cwd, dir);
+    const out = await claudeProvider.run({
+      prompt: "x", model: "m", cwd: dir, allowedTools: ["Read"], permissionMode: "acceptEdits", maxTurns: 3,
+    });
+    assert.deepEqual(out.usage, { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 });
   } finally { await srv.close(); }
-});
-
-test("claude preflight", async () => {
-  const saved = { ...process.env };
-  const emptyBin = mkdtempSync(join(tmpdir(), "hk-bin-"));
-  const home = mkdtempSync(join(tmpdir(), "hk-home-"));
-  const clean = () => {
-    delete process.env.HIVEKIT_ALLOW_NO_TOKEN;
-    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
-    process.env.HOME = home;
-    process.env.PATH = emptyBin; // `security` cannot be found
-  };
-  try {
-    clean();
-    await assert.rejects(claudeProvider.preflight(), /no Claude Max OAuth token/);
-    process.env.HIVEKIT_ALLOW_NO_TOKEN = "1";
-    await claudeProvider.preflight();
-    clean();
-    process.env.CLAUDE_CODE_OAUTH_TOKEN = "t";
-    await claudeProvider.preflight();
-    clean();
-    mkdirSync(join(home, ".claude"));
-    writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
-    await claudeProvider.preflight();
-  } finally {
-    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
-    Object.assign(process.env, saved);
-  }
 });

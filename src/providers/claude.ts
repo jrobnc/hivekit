@@ -1,9 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { execFile } from "child_process";
-import { existsSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
 import type { Provider, ProviderRunInput, ProviderRunOutput, Role } from "./types.js";
 
 /** Aliases, not pinned ids, so each new release is picked up. */
@@ -14,12 +10,6 @@ export const CLAUDE_MODELS: Record<Role, string> = {
   evaluate: "opus",
   advise: "fable",
 };
-
-function keychainHasToken(): Promise<boolean> {
-  return new Promise((resolve) => {
-    execFile("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], (err) => resolve(!err));
-  });
-}
 
 export const claudeProvider: Provider = {
   name: "claude",
@@ -87,9 +77,8 @@ export const claudeProvider: Provider = {
       console.log(`  [agent] ${messageCount} messages, ${Math.round(durationMs / 1000)}s, $${totalCostUsd.toFixed(2)}`);
     }
 
-    if (thrown !== undefined) throw thrown;
-
     return {
+      thrown,
       result,
       sessionId,
       durationMs,
@@ -105,18 +94,5 @@ export const claudeProvider: Provider = {
       },
       model: input.model,
     };
-  },
-
-  // Not an API key: HARNESS_ALLOW_API_KEY is deliberately not honoured (rule 1).
-  async preflight() {
-    if (
-      process.env.HIVEKIT_ALLOW_NO_TOKEN ||
-      process.env.CLAUDE_CODE_OAUTH_TOKEN ||
-      existsSync(join(process.env.HOME || homedir(), ".claude", ".credentials.json")) ||
-      (await keychainHasToken())
-    ) return;
-    throw new Error(
-      "no Claude Max OAuth token found (checked CLAUDE_CODE_OAUTH_TOKEN, the macOS Keychain, ~/.claude/.credentials.json). Run `claude /login`, or set CLAUDE_CODE_OAUTH_TOKEN."
-    );
   },
 };

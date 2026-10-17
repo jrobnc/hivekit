@@ -103,6 +103,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
       maxBudgetUsd: positiveNumber(process.env.HIVEKIT_MAX_USD_PER_AGENT),
       onProgress: opts.onProgress,
     });
+    thrown = out.thrown;
   } catch (err) {
     thrown = err;
   }
