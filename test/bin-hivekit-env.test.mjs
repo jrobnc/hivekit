@@ -216,3 +216,13 @@ test("bin/hivekit proceeds when ~/.claude/.credentials.json exists (non-macOS)",
   assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
   assert.ok(proc.stdout.includes("PATH="));
 });
+
+test("bin/hivekit proceeds when the Keychain holds a token but never exports it (rotation safety)", () => {
+  const proc = runLauncherNoToken({}, {
+    security: `#!/usr/bin/env bash\necho '{"claudeAiOauth":{"accessToken":"kc-secret-token"}}'\n`,
+  });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(proc.stdout.includes("PATH="), "node must have been exec'd");
+  assert.ok(!proc.stdout.includes("kc-secret-token"), "Keychain token must not be pinned into the env");
+  assert.ok(!proc.stdout.includes("CLAUDE_CODE_OAUTH_TOKEN="), "CLAUDE_CODE_OAUTH_TOKEN must stay unset so the SDK reads the Keychain live");
+});
