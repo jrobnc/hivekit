@@ -25,7 +25,7 @@ import {
 } from "./outcome.js";
 import { getProvider } from "./providers/index.js";
 import { resolveTurnLimits, describeTurnLimits } from "./turns.js";
-import { registerRun, liveRuns, readPressureLevel, checkAdmission, ADMISSION_EXIT_CODE } from "./registry.js";
+import { registerRun, unregisterRun, liveRuns, otherLiveRuns, readPressureLevel, checkAdmission, ADMISSION_EXIT_CODE } from "./registry.js";
 import type {
   HarnessConfig,
   Mode,
@@ -329,6 +329,14 @@ async function initRun(config: HarnessConfig): Promise<RunContext> {
 
   await mkdir(runDir, { recursive: true });
   registerRun({ runId, cwd: config.cwd, mode: config.mode });
+  // Re-check now that we are registered: two launches within the same instant both passed the
+  // early check, and only one of them may continue. The run dir exists at this point.
+  const again = checkAdmission(otherLiveRuns(), readPressureLevel());
+  if (!again.ok) {
+    unregisterRun();
+    console.error(again.message);
+    process.exit(ADMISSION_EXIT_CODE);
+  }
   await excludeFromGit(config.cwd);
 
   // Ensure index file exists with header

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  liveRuns, registerRun, trackAgent, unregisterRun, readPressureLevel, checkAdmission, agentBudget, ADMISSION_EXIT_CODE,
+  liveRuns, otherLiveRuns, looksLikeHivekit, registerRun, trackAgent, unregisterRun, readPressureLevel, checkAdmission, agentBudget, ADMISSION_EXIT_CODE,
 } from "../dist/registry.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -169,5 +169,41 @@ test("--help documents status, env vars, and exit 75", () => {
   const out = cli(["--help"], tmp()).stdout;
   for (const s of ["status", "HIVEKIT_MAX_RUNS", "HIVEKIT_MAX_AGENTS", "HIVEKIT_RUNS_DIR", "HIVE_ADMIT", "75"]) {
     assert.ok(out.includes(s), `help missing ${s}`);
+  }
+});
+
+test("liveRuns prunes a live pid that is no longer a hivekit (pid reuse after SIGKILL)", () => {
+  const dir = tmp();
+  try {
+    writeFileSync(join(dir, "reused.json"), JSON.stringify(entry({ runId: "reused" })));
+    writeFileSync(join(dir, "real.json"), JSON.stringify(entry({ runId: "real" })));
+    const seen = [];
+    const live = liveRuns(dir, (pid) => { seen.push(pid); return false; });
+    assert.equal(live.length, 0);
+    assert.equal(existsSync(join(dir, "reused.json")), false, "file of the reused pid is removed");
+    assert.equal(seen.length, 2);
+    writeFileSync(join(dir, "real.json"), JSON.stringify(entry({ runId: "real" })));
+    assert.equal(liveRuns(dir, () => true).length, 1);
+    // the default verifier recognises this node test process
+    assert.equal(looksLikeHivekit(process.pid), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("otherLiveRuns excludes this process; unregisterRun forgets the current run", () => {
+  const dir = tmp();
+  const prev = process.env.HIVEKIT_RUNS_DIR;
+  process.env.HIVEKIT_RUNS_DIR = dir;
+  try {
+    registerRun({ runId: "me", cwd: "/c", mode: "review" });
+    writeFileSync(join(dir, "other.json"), JSON.stringify(entry({ runId: "other", pid: process.ppid })));
+    assert.deepEqual(otherLiveRuns(dir).map((r) => r.runId), ["other"]);
+    unregisterRun();
+    trackAgent(1);
+    assert.equal(existsSync(join(dir, "me.json")), false, "trackAgent after unregister recreates nothing");
+  } finally {
+    if (prev === undefined) delete process.env.HIVEKIT_RUNS_DIR; else process.env.HIVEKIT_RUNS_DIR = prev;
+    rmSync(dir, { recursive: true, force: true });
   }
 });

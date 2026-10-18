@@ -19,7 +19,25 @@ export function runsDir(env: Record<string, string | undefined> = process.env): 
   return env.HIVEKIT_RUNS_DIR || join(homedir(), ".hivekit", "runs");
 }
 
-export function liveRuns(dir = runsDir()): RunEntry[] {
+/**
+ * Is this live pid plausibly a hivekit run? A run killed by SIGKILL (memguard, OOM, a reboot
+ * that reused the pid space) leaves its file behind; if the pid now belongs to something else,
+ * counting it would refuse every run forever. `ps` is read-only; when it fails we keep the entry.
+ */
+export function looksLikeHivekit(pid: number): boolean {
+  try {
+    const cmd = execFileSync("ps", ["-o", "command=", "-p", String(pid)], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2000,
+    });
+    return /(^|\/)node(\s|$)|hivekit|dist\/index\.js/.test(cmd);
+  } catch {
+    return true;
+  }
+}
+
+export function liveRuns(dir = runsDir(), isHivekit: (pid: number) => boolean = looksLikeHivekit): RunEntry[] {
   let names: string[];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".json") && !n.startsWith("."));
@@ -45,9 +63,18 @@ export function liveRuns(dir = runsDir()): RunEntry[] {
       }
       // EPERM: alive, owned by another user — keep
     }
+    if (!isHivekit(entry.pid)) {
+      try { unlinkSync(path); } catch { /* raced */ }
+      continue; // pid reused by an unrelated process: the run is gone
+    }
     live.push(entry);
   }
   return live;
+}
+
+/** Live runs other than this process: what admission counts once we are registered. */
+export function otherLiveRuns(dir = runsDir()): RunEntry[] {
+  return liveRuns(dir).filter((r) => r.pid !== process.pid);
 }
 
 let current: { path: string; entry: RunEntry } | undefined;
@@ -67,6 +94,7 @@ function write(): void {
 export function unregisterRun(): void {
   if (!current) return;
   try { rmSync(current.path, { force: true }); } catch { /* never throw */ }
+  current = undefined; // a later trackAgent must not recreate the file
 }
 
 export function registerRun(e: { runId: string; cwd: string; mode: Mode }): void {
