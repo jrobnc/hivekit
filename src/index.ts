@@ -25,6 +25,7 @@ import {
 } from "./outcome.js";
 import { getProvider } from "./providers/index.js";
 import { resolveTurnLimits, describeTurnLimits } from "./turns.js";
+import { registerRun, unregisterRun, liveRuns, otherLiveRuns, readPressureLevel, checkAdmission, ADMISSION_EXIT_CODE } from "./registry.js";
 import type {
   HarnessConfig,
   Mode,
@@ -272,6 +273,18 @@ Options:
   --review-turns <N>               Review agent turns (default: 40)
   -h, --help                       Show this help
 
+Commands:
+  status, --status                 Print live runs + memory pressure as one JSON line, then exit
+
+Environment:
+  HIVEKIT_MAX_RUNS                 Max concurrent hivekit runs on this machine (default: 1)
+  HIVEKIT_MAX_AGENTS               Max parallel agents per phase (default: 3; 1 under memory pressure)
+  HIVEKIT_RUNS_DIR                 Run registry directory (default: ~/.hivekit/runs)
+  HIVE_ADMIT=1                     Bypass the admission checks (active run + memory pressure)
+
+Exit codes:
+  75                               Refused admission (another run active or memory pressure); retry later
+
 Examples:
   hivekit "review the iOS app" --depth deep
   hivekit "build user authentication" --mode build
@@ -315,6 +328,15 @@ async function initRun(config: HarnessConfig): Promise<RunContext> {
   const indexPath = join(root, "index.md");
 
   await mkdir(runDir, { recursive: true });
+  registerRun({ runId, cwd: config.cwd, mode: config.mode });
+  // Re-check now that we are registered: two launches within the same instant both passed the
+  // early check, and only one of them may continue. The run dir exists at this point.
+  const again = checkAdmission(otherLiveRuns(), readPressureLevel());
+  if (!again.ok) {
+    unregisterRun();
+    console.error(again.message);
+    process.exit(ADMISSION_EXIT_CODE);
+  }
   await excludeFromGit(config.cwd);
 
   // Ensure index file exists with header
@@ -463,11 +485,22 @@ async function finalizeRun(
 }
 
 async function main(): Promise<RunOutcome> {
+  // Machine-readable status for hive-stats / memguard: no config, provider, or run dir involved.
+  if (process.argv[2] === "status" || process.argv.slice(2).includes("--status")) {
+    const json = JSON.stringify({ runs: liveRuns(), pressure_level: readPressureLevel() ?? null });
+    process.stdout.write(json + "\n", () => process.exit(0)); // exit after flush; pipes are async on macOS
+    return new Promise<never>(() => {});
+  }
   const config = parseArgs(process.argv);
   const intent = await resolveIntent(config);
 
   // Fail before any phase on a bad provider config; there is no fallback to another provider.
   try { getProvider(); } catch (err) { console.error(`Error: ${err instanceof Error ? err.message : err}`); process.exit(1); }
+
+  // Refuse before the banner/initRun so a refused run leaves no run dir, registry entry, or agent.
+  const admission = checkAdmission(liveRuns(), readPressureLevel());
+  if (!admission.ok) { console.error(admission.message); process.exit(ADMISSION_EXIT_CODE); }
+  if (admission.bypassed) console.log("[hivekit] HIVE_ADMIT=1 — admission checks bypassed");
 
   console.log(`
 ┌─────────────────────────────────────────────┐

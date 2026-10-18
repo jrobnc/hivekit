@@ -3,6 +3,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
 import { resolveTurnLimits } from "./turns.js";
+import { agentBudget } from "./registry.js";
 import { treeFingerprint } from "./paths.js";
 import type {
   RunContext,
@@ -47,6 +48,13 @@ const DIMENSION_DESCRIPTIONS: Record<string, string> = {
 };
 
 // ── Review mode: parallel agents per dimension ──────────────────────
+
+// Read once per phase; logs why the fan-out is below the default of 3.
+function logBudget(): number {
+  const { budget, reason } = agentBudget();
+  console.log(`[generator] agent budget: ${budget}${budget < 3 && reason ? ` (reduced: ${reason})` : ""}`);
+  return budget;
+}
 
 async function runReviewGenerators(
   ctx: RunContext,
@@ -102,11 +110,11 @@ async function runReviewGenerators(
     return result;
   }
 
-  // Batch in groups of 3 to avoid rate-limit errors from too many simultaneous API calls
-  const BATCH_SIZE = 3;
+  // Batch to avoid rate-limit errors and memory pressure from too many simultaneous agents
+  const budget = logBudget();
   const results: DimensionFindings[] = [];
-  for (let b = 0; b < dimensions.length; b += BATCH_SIZE) {
-    const batch = dimensions.slice(b, b + BATCH_SIZE);
+  for (let b = 0; b < dimensions.length; b += budget) {
+    const batch = dimensions.slice(b, b + budget);
     const batchResults = await Promise.all(batch.map(runOneDimension));
     results.push(...batchResults);
   }
@@ -176,7 +184,7 @@ async function runImproveGenerators(
     .split(/^###?\s+/m)
     .filter((s) => s.trim().length > 0);
 
-  const agentCount = Math.min(3, Math.max(1, Math.ceil(sections.length / 4)));
+  const agentCount = Math.min(logBudget(), Math.max(1, Math.ceil(sections.length / 4)));
   const principles = await loadPrinciples();
   console.log(`[generator] Launching ${agentCount} improvement agent(s)...`);
 
