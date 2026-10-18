@@ -1,6 +1,6 @@
 import { exec } from "child_process";
 import { mkdir, readdir, readFile, stat, writeFile } from "fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 type Args = Record<string, any>;
 interface Ctx { cwd?: string; allowedTools: string[]; apiKeyEnv?: string }
@@ -29,7 +29,7 @@ function globToRegExp(glob: string): RegExp {
     if (c === "*" && glob[i + 1] === "*") {
       i++;
       if (glob[i + 1] === "/") i++;
-      re += "(?:.*/)?";
+      re += i + 1 >= glob.length ? ".*" : "(?:.*/)?";
     } else if (c === "*") re += "[^/]*";
     else if (c === "?") re += "[^/]";
     else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
@@ -90,7 +90,8 @@ async function run(name: string, a: Args, cwd: string, apiKeyEnv?: string): Prom
       const hits: string[] = [];
       for (const f of await walk(root)) {
         const rel = relative(root, f);
-        if (fileRe && !fileRe.test(rel)) continue;
+        const target = a.glob && !String(a.glob).includes("/") ? basename(rel) : rel;
+        if (fileRe && !fileRe.test(target)) continue;
         if ((await stat(f)).size > 1_000_000) continue;
         const lines = (await readFile(f, "utf-8")).split("\n");
         for (let i = 0; i < lines.length && hits.length < 200; i++) {

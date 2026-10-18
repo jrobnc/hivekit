@@ -157,7 +157,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   }
   if (thrown !== undefined) throw thrown;
   if (isError) {
-    throw new Error(`Agent failed: ${result}`);
+    throw new Error(`Agent failed${subtype ? ` (${subtype})` : ""}: ${result}`);
   }
 
   return { result, sessionId: out?.sessionId ?? "", durationMs, totalCostUsd };

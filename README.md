@@ -253,7 +253,10 @@ HIVEKIT_PROVIDER=openai-compatible HIVEKIT_PROVIDER_CONFIG=./provider.json hivek
   "apiKeyEnv": "OPENROUTER_API_KEY",
   "models": { "frontier": "big-model", "workhorse": "small-model" },
   "timeoutMs": 300000,
-  "pricesUsdPerMTok": { "big-model": { "input": 3, "output": 15 } }
+  "pricesUsdPerMTok": {
+    "big-model": { "input": 3, "output": 15 },
+    "small-model": { "input": 0.5, "output": 1.5 }
+  }
 }
 ```
 
@@ -261,6 +264,7 @@ HIVEKIT_PROVIDER=openai-compatible HIVEKIT_PROVIDER_CONFIG=./provider.json hivek
 - Agents get Read, Glob, Grep, Bash, Write and Edit through `POST {baseUrl}/chat/completions` tool calling. Turn caps apply as usual. Read/Write/Edit/Glob/Grep are confined to the run's cwd (symlinks are not resolved); Bash is not sandboxed. Bash runs without `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_*` or the `apiKeyEnv` variable, defaults to a 120 s timeout and is capped at 600 s. Each request times out after `timeoutMs` (default 300000).
 - The API key is read from the env var named in `apiKeyEnv` (omit it for local servers), sent only as a bearer header; error messages include the status and at most 200 chars of the response body (with the key redacted), never headers or the URL query.
 - **Max by default:** the launcher strips `ANTHROPIC_API_KEY` unless `HARNESS_ALLOW_API_KEY=1` is set, and reads the Keychain token only when the provider is `claude`.
+- `HIVEKIT_MAX_USD_PER_AGENT` with `openai-compatible` requires a `pricesUsdPerMTok` entry for every model in use (`frontier` and `workhorse`); otherwise the run stops before any phase. Prices stay optional when the cap is unset.
 - **No fallback:** a missing or invalid config file stops the run before any phase. A provider error fails that agent call; for the advisor it is reported as "advisor unavailable" and the run continues. hivekit never retries on another provider.
 - Each ledger line records the `provider`.
 

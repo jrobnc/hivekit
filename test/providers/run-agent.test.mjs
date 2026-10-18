@@ -16,9 +16,9 @@ process.env.HIVEKIT_LEDGER = ledger; // LEDGER is fixed at load, so set before t
 const { runAgent, TIERS } = await import("../../dist/sdk-utils.js");
 const { turnCapMessage } = await import("../../dist/turns.js");
 
-const config = (url) => {
+const config = (url, extra = {}) => {
   const p = join(dir, "cfg.json");
-  writeFileSync(p, JSON.stringify({ name: "openai-compatible", baseUrl: url, models: { frontier: "big-model", workhorse: "small-model" } }));
+  writeFileSync(p, JSON.stringify({ name: "openai-compatible", baseUrl: url, models: { frontier: "big-model", workhorse: "small-model" }, ...extra }));
   return p;
 };
 async function withProvider(cfgPath, fn) {
@@ -75,4 +75,54 @@ test("a failing openai-compatible provider never falls back to the Claude SDK", 
   await closed.close();
   await assert.rejects(withProvider(config(deadUrl), () => runAgent({ ...TIERS.build, prompt: "p" })), /openai-compatible/);
   assert.equal(queryCalls.length, 0);
+});
+
+test("finish_reason length is a failure, not a result", async () => {
+  const srv = await startFakeOpenAI(() => ({ choices: [{ message: { role: "assistant", content: "partial" }, finish_reason: "length" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+  try {
+    await assert.rejects(
+      withProvider(config(srv.url), () => runAgent({ ...TIERS.build, prompt: "p", label: "t" })),
+      /Agent failed \(finish_length\): partial/
+    );
+  } finally { await srv.close(); }
+});
+
+test("budget stop after a tool turn names its subtype", async () => {
+  const srv = await startFakeOpenAI(() => reply(toolCall("Read", { file_path: "x" })));
+  const price = { input: 1e6, output: 1e6 };
+  process.env.HIVEKIT_MAX_USD_PER_AGENT = "0.01";
+  try {
+    await assert.rejects(
+      withProvider(config(srv.url, { pricesUsdPerMTok: { "big-model": price, "small-model": price } }), () =>
+        runAgent({ ...TIERS.build, allowedTools: ["Read"], prompt: "p" })),
+      /Agent failed \(error_max_budget_usd\)/
+    );
+  } finally { delete process.env.HIVEKIT_MAX_USD_PER_AGENT; await srv.close(); }
+});
+
+test("H1: an error after turn 1 still ledgers the earlier turn's spend", async () => {
+  const srv = await startFakeOpenAI((_b, i) =>
+    i === 0 ? reply(toolCall("Read", { file_path: "x" }), { prompt_tokens: 10, completion_tokens: 3 }) : { status: 500, text: "boom" });
+  try {
+    await assert.rejects(
+      withProvider(config(srv.url), () => runAgent({ ...TIERS.build, allowedTools: ["Read"], label: "h1", prompt: "p" })),
+      /500: boom/
+    );
+    const line = JSON.parse(readFileSync(ledger, "utf-8").trim().split("\n").pop());
+    assert.equal(line.turns, 1);
+    assert.equal(line.usage.input_tokens, 10);
+    assert.equal(line.error, true);
+  } finally { await srv.close(); }
+});
+
+test("H2: a budget cap with an unpriced model is rejected before any request", async () => {
+  const srv = await startFakeOpenAI(() => reply({ role: "assistant", content: "hi" }));
+  process.env.HIVEKIT_MAX_USD_PER_AGENT = "2";
+  try {
+    await assert.rejects(
+      withProvider(config(srv.url), () => runAgent({ ...TIERS.build, prompt: "p", label: "h2" })),
+      (e) => /HIVEKIT_MAX_USD_PER_AGENT/.test(e.message) && /small-model|big-model/.test(e.message)
+    );
+    assert.equal(srv.requests.length, 0);
+  } finally { delete process.env.HIVEKIT_MAX_USD_PER_AGENT; await srv.close(); }
 });
