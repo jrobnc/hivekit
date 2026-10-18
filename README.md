@@ -309,6 +309,10 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `HIVEKIT_*_TURNS`, `HIVEKIT_MAX_TURNS` | integer | unset | Per-phase and global turn caps; see [Turn limits](#turn-limits). |
 | `HIVEKIT_LEDGER` | file path | `~/.cache/hivekit/ledger.jsonl` | Where the cost ledger is written. `npm test` points it at a throwaway file so tests never touch your real ledger. |
 | `HIVEKIT_MAX_USD_PER_AGENT` | decimal | unset | Per-agent cost cap passed to the Agent SDK as `maxBudgetUsd`. |
+| `HIVEKIT_MAX_RUNS` | positive integer | `1` | Max concurrent hivekit runs on the machine; a further run is refused with exit 75. |
+| `HIVEKIT_MAX_AGENTS` | positive integer | `3` | Max parallel agents per review/improve phase; forced to `1` under macOS memory pressure. |
+| `HIVEKIT_RUNS_DIR` | directory | `~/.hivekit/runs` | Where live runs are registered. |
+| `HIVE_ADMIT` | `1` to bypass | unset | Skips both admission checks (active run, memory pressure). `npm test` sets it. |
 | `HIVEKIT_JEV` | `1` to enable | off | Opt-in for the Jev gate. Only with `HIVEKIT_JEV=1` (and a key) is masked evaluator feedback (each failure cut to 1,900 chars, total 4,000; emails/phones replaced) sent to `api.typesafe.ai`. |
 | `HIVEKIT_JEV_BUDGET` | USD | `25` | Jev stops once its spend recorded in `~/.cache/hivekit/ledger.jsonl` reaches this. |
 | `JEV_API_KEY` | API key | unset | TypeSafe System One key (or `~/.config/jev/credentials`). Has no effect without `HIVEKIT_JEV=1`. |
@@ -318,6 +322,26 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 `CLAUDE_CODE_OAUTH_TOKEN` is deliberately left untouched — it is the Claude Max credential that subprocess authenticates with.
 
 Every `runAgent` call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, model, provider, effort, usd, ms, cwd, maxTurns, error, runId, phase, turns, usage{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}, lane`) for cost tracking and auditability.
+
+## Memory and concurrency
+
+Each run can spawn up to five Claude processes (~2.5 GB), so hivekit guards the machine:
+
+- **Admission:** a run is refused with **exit 75** (`EX_TEMPFAIL`: retry later; nothing ran, no `result.json`) when `HIVEKIT_MAX_RUNS` (default `1`) runs are already live, or when macOS memory pressure is warning or worse (`kern.memorystatus_vm_pressure_level` ≥ 2). `HIVE_ADMIT=1` bypasses both.
+- **Fan-out:** review/improve phases run at most `HIVEKIT_MAX_AGENTS` (default `3`) agents at once, and `1` while memory pressure is ≥ 2.
+- **Registry:** every live run writes `~/.hivekit/runs/<runId>.json` (override the directory with `HIVEKIT_RUNS_DIR`), removed on exit, crash, SIGINT or SIGTERM. Dead pids are pruned on read.
+
+```json
+{ "pid": 12345, "runId": "build-x-20261018-134144-259f44", "cwd": "/Users/me/app", "mode": "build", "startedAt": "2026-10-18T20:41:44.000Z", "agents": 2 }
+```
+
+`hivekit status` (or `--status`) prints one JSON line and exits 0, without needing a task or provider config. The hive-stats Claude Code mod and the memguard daemon read it:
+
+```json
+{"runs":[{"pid":12345,"runId":"build-x-20261018-134144-259f44","cwd":"/Users/me/app","mode":"build","startedAt":"2026-10-18T20:41:44.000Z","agents":2}],"pressure_level":1}
+```
+
+`pressure_level` is `1` normal, `2` warning, `4` critical, or `null` off macOS / when unreadable.
 
 ## Under the hood — the implementation path
 
@@ -376,6 +400,7 @@ disk, or from prose an agent wrote into a report.
 | 2    | `failed`               | Evaluator judged the work and rejected it             |
 | 3    | `max_rounds_exhausted` | Rounds ran out with no evaluator PASS                 |
 | 4    | `errored`              | Evaluator produced no usable verdict (nothing verified), or a review dimension FAILED-TO-REVIEW |
+| 75   | (none)                 | Admission refused (another run active or memory pressure); nothing ran, no `result.json` |
 
 The launcher's no-token exit 3 happens before Node starts: it prints a stderr message and writes no `result.json`, which is how it differs from `max_rounds_exhausted`.
 

@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { turnCapMessage } from "./turns.js";
+import { trackAgent } from "./registry.js";
 import type { TurnPhase } from "./types.js";
 import { getProvider } from "./providers/index.js";
 import type { Effort, Role, ProviderRunOutput } from "./providers/types.js";
@@ -91,6 +92,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
 
   let out: ProviderRunOutput | undefined;
   let thrown: unknown;
+  trackAgent(1);
   try {
     out = await provider.run({
       prompt: opts.prompt,
@@ -106,6 +108,8 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     thrown = out.thrown;
   } catch (err) {
     thrown = err;
+  } finally {
+    trackAgent(-1);
   }
   const result = out?.result ?? "";
   const isError = out?.isError ?? false;

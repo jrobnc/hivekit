@@ -61,6 +61,12 @@ for name in "${NESTED_SESSION_VARS[@]}"; do
   UNSET_ARGS+=(-u "$name")
 done
 
+# `status` / `--status` only reads the admission registry: no Claude work, so skip the token gate
+# (a launchd memguard daemon has no Keychain access). The env stripping still applies.
+if [[ "${1:-}" == "status" || "${1:-}" == "--status" ]]; then
+  exec env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN "${UNSET_ARGS[@]}" node "$ENTRY" "$@"
+fi
+
 # Auth for the Planner/Generator/Evaluator subprocesses. If the caller did not set
 # CLAUDE_CODE_OAUTH_TOKEN, read the CURRENT access token from the macOS Keychain at
 # launch. (A shell-wide export, the old ~/.zshenv approach, froze a token that

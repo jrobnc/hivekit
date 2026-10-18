@@ -20,7 +20,7 @@ export function countSpecPaths(task: string): number {
   return found.size;
 }
 
-function positiveInt(raw: string | undefined): number | undefined {
+export function positiveInt(raw: string | undefined): number | undefined {
   const n = Number(raw);
   return raw !== undefined && raw.trim() !== "" && Number.isFinite(n) && n >= 1 ? Math.floor(n) : undefined;
 }
