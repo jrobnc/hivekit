@@ -67,20 +67,29 @@ test("missing runId, phase, lane, turns and usage default to empty/zero", async 
   assert.equal(line.lane, "");
 });
 
-test("ledger line keys are today's keys plus provider; default role is claude opus", async () => {
+test("ledger line keys are today's keys plus provider; default role is claude sonnet", async () => {
   await runAgent({ prompt: "bare", label: "t", cwd: "/tmp" }); // cwd undefined would drop the key from JSON
   const line = lastLine();
   assert.equal(line.provider, "claude");
-  assert.equal(line.model, "opus");
+  // design change (self-escalating tiers): no role falls back to build/sonnet, was plan/opus
+  assert.equal(line.model, "sonnet");
   assert.deepEqual(
     Object.keys(line).sort(),
     "ts,label,model,provider,effort,usd,ms,cwd,maxTurns,error,runId,phase,turns,usage,lane".split(",").sort()
   );
 });
 
-test("role advise resolves to fable; model overrides on claude", async () => {
-  await runAgent({ prompt: "bare", label: "t", role: "advise" });
+test("escalated roles resolve to opus (build) and fable (advise)", async () => {
+  await runAgent({ prompt: "bare", label: "t", role: "build-escalated" });
+  assert.equal(lastLine().model, "opus");
+  await runAgent({ prompt: "bare", label: "t", role: "advise-escalated" });
   assert.equal(lastLine().model, "fable");
+});
+
+test("role advise resolves to opus; model overrides on claude", async () => {
+  await runAgent({ prompt: "bare", label: "t", role: "advise" });
+  // design change (self-escalating tiers): the default advisor is opus, was fable
+  assert.equal(lastLine().model, "opus");
   await runAgent({ prompt: "bare", label: "t", model: "x" });
   assert.equal(lastLine().model, "x");
 });

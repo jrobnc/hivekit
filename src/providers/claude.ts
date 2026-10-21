@@ -8,7 +8,9 @@ export const CLAUDE_MODELS: Record<Role, string> = {
   build: "sonnet",
   review: "sonnet",
   evaluate: "opus",
-  advise: "fable",
+  advise: "opus",
+  "build-escalated": "opus",
+  "advise-escalated": "fable",
 };
 
 export const claudeProvider: Provider = {

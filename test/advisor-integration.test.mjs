@@ -19,6 +19,8 @@ let adviseImpl = async () => ({ ok: true, note: "advisor ok" });
 let jevYesNoImpl = async () => null;
 let evaluatorResults = [];
 let generatorFeedbacks = [];
+let generatorTiers = [];
+let planBody = "# Test plan";
 let generatorFindings;
 let tmpDir;
 
@@ -35,16 +37,17 @@ mock.module("../dist/planner.js", {
   namedExports: {
     runPlanner: async (ctx) => {
       const planPath = join(ctx.runDir, "plan.md");
-      writeFileSync(planPath, "# Test plan\n", "utf-8");
-      return { planPath, planContent: "# Test plan" };
+      writeFileSync(planPath, planBody + "\n", "utf-8");
+      return { planPath, planContent: planBody };
     },
   },
 });
 
 mock.module("../dist/generator.js", {
   namedExports: {
-    runGenerator: async (_ctx, feedback) => {
+    runGenerator: async (_ctx, feedback, tier) => {
       generatorFeedbacks.push(feedback);
+      generatorTiers.push(tier?.role);
       return generatorFindings ? { mode: "review", findings: generatorFindings } : { mode: "build" };
     },
   },
@@ -70,7 +73,15 @@ mock.module("../dist/evaluator.js", {
 mock.module("../dist/sdk-utils.js", {
   namedExports: {
     runAgent: async () => "stubbed",
-    TIERS: { opus: "claude-sonnet-4-20250514", sonnet: "claude-sonnet-4-20250514", fable: "claude-sonnet-4-20250514" },
+    TIERS: {
+      plan: { role: "plan", effort: "high" },
+      build: { role: "build", effort: "medium" },
+      review: { role: "review", effort: "medium" },
+      evaluate: { role: "evaluate", effort: "high" },
+      advise: { role: "advise", effort: "high" },
+      buildEscalated: { role: "build-escalated", effort: "medium" },
+      adviseEscalated: { role: "advise-escalated", effort: "high" },
+    },
     appendLedger: async () => {},
   },
 });
@@ -338,4 +349,123 @@ test("--depth quick runs only the done check (no plan or stuck advisor calls)", 
   assert.ok(!existsSync(join(runDir, "advisor-plan.md")), "no plan check at quick depth");
   assert.ok(existsSync(join(runDir, "advisor-done-r1.md")), "done check still runs at quick depth");
   rmSync(tmpDir, { recursive: true, force: true });
+});
+
+// ── Self-escalating tiers ──────────────────────────────────────────
+
+const FAIL = (fb) => ({ scores: [{ criterion: "test", score: 40 }], status: "failed", reason: "below_threshold", passed: false, feedback: fb, report: "fail" });
+const PASS = { scores: [{ criterion: "test", score: 90 }], status: "passed", reason: "meets_threshold", passed: true, feedback: "", report: "ok" };
+
+test("tiers: round 1 builds on base, rounds after a rejection build on build-escalated", async () => {
+  setupTmpDir();
+  setArgv();
+  adviseImpl = async () => ({ ok: true, note: "ok" });
+  jevYesNoImpl = async () => false;
+  evaluatorResults = [FAIL("a"), FAIL("b"), PASS];
+  generatorTiers = [];
+  try {
+    await main();
+    assert.deepEqual(generatorTiers, ["build", "build-escalated", "build-escalated"]);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("tiers: a round-1 plan objection still builds round 1 on the base tier", async () => {
+  setupTmpDir();
+  setArgv();
+  adviseImpl = async (checkpoint) => (checkpoint === "plan" ? { ok: false, note: "OBJECTION\nbad plan" } : { ok: true, note: "ok" });
+  evaluatorResults = [PASS];
+  generatorTiers = [];
+  try {
+    await main();
+    assert.deepEqual(generatorTiers, ["build"]);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("tiers: the stuck check escalates the advisor", async () => {
+  setupTmpDir();
+  setArgv();
+  const stuckArgs = [];
+  adviseImpl = async (...args) => {
+    if (args[0] === "stuck") stuckArgs.push(args);
+    return { ok: true, note: "ok" };
+  };
+  jevYesNoImpl = async () => true;
+  evaluatorResults = [FAIL("same"), FAIL("same"), PASS];
+  try {
+    await main();
+    assert.equal(stuckArgs.length, 1);
+    assert.strictEqual(stuckArgs[0][4], true);
+  } finally {
+    jevYesNoImpl = async () => null;
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+for (const [body, expected] of [
+  ["Stakes: high", true],
+  ["**Stakes:** high", true],
+  ["stakes: HIGH", true],
+  ["Stakes: normal", false],
+  ["# Plan with no stakes line", false],
+  ["- Stakes: high", true],
+  ["Stakes: **high**", true],
+  ["> Stakes: high", true],
+  ["Stakes: highly unlikely", false],
+  ["Stakes: high|normal", false],
+]) {
+  test(`tiers: done check escalate=${expected} for plan body ${JSON.stringify(body)}`, async () => {
+    setupTmpDir();
+    setArgv();
+    let doneArg;
+    adviseImpl = async (checkpoint, _cwd, _ctx, _runId, escalate) => {
+      if (checkpoint === "done") doneArg = escalate;
+      return { ok: true, note: "ok" };
+    };
+    evaluatorResults = [PASS];
+    planBody = `# Plan\n\n${body}`;
+    try {
+      await main();
+      assert.strictEqual(doneArg, expected);
+    } finally {
+      planBody = "# Test plan";
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("tiers: an intent-file Stakes line escalates the done check without the plan", async () => {
+  setupTmpDir();
+  writeFileSync(join(tmpDir, "HIVE.md"), "## Objective\nX\n\nStakes: high\n\n## Success Criteria\n- [auto] tests pass\n");
+  process.argv = ["node", "index.js", "--intent", join(tmpDir, "HIVE.md"), "--mode", "build", "--cwd", tmpDir];
+  let doneArg;
+  adviseImpl = async (checkpoint, _cwd, _ctx, _runId, escalate) => {
+    if (checkpoint === "done") doneArg = escalate;
+    return { ok: true, note: "ok" };
+  };
+  evaluatorResults = [PASS];
+  try {
+    await main();
+    assert.strictEqual(doneArg, true);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("tiers: an evaluator error does not escalate the next build", async () => {
+  setupTmpDir();
+  setArgv();
+  const ERRORED = { scores: [], status: "errored", reason: "empty_output", passed: false, feedback: "evaluator produced no output", report: "" };
+  adviseImpl = async () => ({ ok: true, note: "ok" });
+  evaluatorResults = [ERRORED, PASS];
+  generatorTiers = [];
+  try {
+    await main();
+    assert.deepEqual(generatorTiers, ["build", "build"]);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
 });

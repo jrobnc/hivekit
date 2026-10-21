@@ -41,3 +41,9 @@ assertion).
 **State your restraint.** When you plan or implement, make the small-change reasoning
 explicit: what the smallest viable change is, and what you deliberately chose *not* to
 touch. "What I avoided" is as important as what you did.
+
+**Pin the model on every model call the task scripts.** When the task itself calls a model
+(a script, a subagent, an SDK call), every call pins its model and effort, or the provider's
+equivalent, with a one-line reason, starting from the cheapest tier that can do the job. Use
+the top tier only when the intent file explicitly approves it for this run. A stage that fails
+twice on its tier escalates one tier and records why. A model call without a pin is a bug.

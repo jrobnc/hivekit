@@ -20,6 +20,8 @@ export const ROLE_TIER = {
   plan: "frontier",
   evaluate: "frontier",
   advise: "frontier",
+  "build-escalated": "frontier",
+  "advise-escalated": "frontier",
   build: "workhorse",
   review: "workhorse",
 } as const satisfies Record<Role, "frontier" | "workhorse">;

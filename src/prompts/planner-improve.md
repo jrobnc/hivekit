@@ -30,6 +30,8 @@ Write an **Improvement Spec** to `{{planPath}}` containing:
 ### Current State
 Assessment of what exists — architecture, patterns, quality level. Be specific about strengths and weaknesses.
 
+End the Current State with one line, `Stakes: high` or `Stakes: normal`. If the intent file or task already states a `Stakes:` line, copy it verbatim instead of judging: the owner's declared stakes win, and your own judgment only fills the gap. Otherwise use high only if a wrong pass is expensive: output that goes to leadership or customers unreviewed, or irreversible production writes. High sends the advisor's final check to the top model tier.
+
 ### Issues Found
 Concrete problems identified, each with:
 - **Location**: File path and line range

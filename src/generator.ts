@@ -2,6 +2,7 @@ import { readFile, mkdir, writeFile, rm } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
+import type { Tier } from "./sdk-utils.js";
 import { resolveTurnLimits } from "./turns.js";
 import { agentBudget } from "./registry.js";
 import { treeFingerprint } from "./paths.js";
@@ -131,6 +132,7 @@ async function runReviewGenerators(
 // ── Build mode: single long-running agent ───────────────────────────
 
 async function runBuildGenerator(
+  tier: Tier,
   ctx: RunContext,
   template: string
 ): Promise<void> {
@@ -155,7 +157,7 @@ async function runBuildGenerator(
 
   const { durationMs } = await runAgent({
     prompt,
-    ...TIERS.build,
+    ...tier,
     label: "generator",
     cwd: config.cwd,
     allowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
@@ -172,6 +174,7 @@ async function runBuildGenerator(
 // ── Improve mode: 1-3 parallel agents ───────────────────────────────
 
 async function runImproveGenerators(
+  tier: Tier,
   ctx: RunContext,
   template: string
 ): Promise<void> {
@@ -214,7 +217,7 @@ async function runImproveGenerators(
     try {
       await runAgent({
         prompt,
-        ...TIERS.build,
+        ...tier,
         label: `improve-${i + 1}`,
         cwd: config.cwd,
         allowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
@@ -309,7 +312,8 @@ export function checkImproveFailures(merged: string[], agentCount: number, treeC
 
 export async function runGenerator(
   ctx: RunContext,
-  evaluatorFeedback?: string
+  evaluatorFeedback?: string,
+  tier: Tier = TIERS.build
 ): Promise<GeneratorOutput> {
   const { config } = ctx;
 
@@ -328,11 +332,11 @@ export async function runGenerator(
       return { mode: "review", findings };
     }
     case "build": {
-      await runBuildGenerator(ctx, template);
+      await runBuildGenerator(tier, ctx, template);
       return { mode: "build", progressPath: join(ctx.runDir, "progress.md") };
     }
     case "improve": {
-      await runImproveGenerators(ctx, template);
+      await runImproveGenerators(tier, ctx, template);
       return { mode: "improve", progressPath: join(ctx.runDir, "progress.md") };
     }
   }

@@ -14,6 +14,7 @@ import { runPlanner } from "./planner.js";
 import { runGenerator } from "./generator.js";
 import { runEvaluator } from "./evaluator.js";
 import { advise, jevYesNo } from "./advisor.js";
+import { TIERS } from "./sdk-utils.js";
 import { loadIntent, intentCompilePreamble, toIntentYaml } from "./intent.js";
 import {
   buildRunResult,
@@ -301,6 +302,10 @@ Examples:
 
 // ── Run management ──────────────────────────────────────────────────
 
+// A `Stakes: high` line in the plan, intent or task: markdown-tolerant (list, quote, heading, bold/italic,
+// ":" or "-"), whole word only, and never the `high|normal` template echo.
+export const STAKES_HIGH_RE = /^[\s>*\-_#]*Stakes[*_]*\s*[:\-–]?[*_]*\s*[*_]*high\b(?!\s*\|)/im;
+
 export function generateRunId(config: HarnessConfig): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -570,6 +575,10 @@ async function main(): Promise<RunOutcome> {
     // --depth quick keeps only the done check (the one that catches a false PASS): on small jobs the
     // plan and stuck checks cost more than the build itself.
     const adviseEarly = advised && config.depth !== "quick";
+    // Stakes: the owner's line (intent file or task text) or the plan's; high means a wrong pass is expensive.
+    const stakesText = `${plan.planContent}\n${ctx.intent?.raw ?? config.task}`;
+    const highStakes = STAKES_HIGH_RE.test(stakesText);
+    if (advised && !/^[\s>*\-_#]*Stakes\b/im.test(stakesText)) console.log("[tier] no Stakes declared; done check stays on the base tier");
     const runContext = `Task: ${config.task}\nPlan: ${plan.planPath}\nRun dir: ${ctx.runDir}`;
 
     // ── Checkpoint 1: plan ──────────────────────────────────────
@@ -587,7 +596,11 @@ async function main(): Promise<RunOutcome> {
       // ── Phase 2: Generate ──────────────────────────────────────
       console.log(`\n═══ Phase 2: Generator (round ${round}) ═══`);
       await updateIndex(ctx, `generating-r${round}`, `Generator round ${round}`);
-      const gen = await runGenerator(ctx, evaluatorFeedback);
+      // A round that was not accepted (evaluator failed it, or it passed and the advisor objected) is the evidence to
+      // escalate; an evaluator error is noise, not evidence, so the next build stays on the base tier.
+      const escalateBuild = round > 1 && lastEvaluation?.status !== "errored";
+      if (escalateBuild) console.log(`[tier] generator escalates to ${getProvider().modelFor(TIERS.buildEscalated.role)}: round ${round - 1} was not accepted`);
+      const gen = await runGenerator(ctx, evaluatorFeedback, escalateBuild ? TIERS.buildEscalated : TIERS.build);
       failedToReview = (gen.findings ?? []).filter((f) => f.error).map((f) => ({ dimension: f.dimension, error: f.error! }));
 
       // ── Phase 3: Evaluate ──────────────────────────────────────
@@ -600,7 +613,8 @@ async function main(): Promise<RunOutcome> {
       // ── Checkpoint 3: done (advisor verifies before accepting a PASS) ──
       if (evaluation.status === "passed" && advised) {
         console.log("\n═══ Advisor: done check ═══");
-        const a = await advise("done", config.cwd, `${runContext}\nReport: ${join(ctx.runDir, "report.md")}`, ctx.runId);
+        if (highStakes) console.log(`[tier] advisor done check escalates to ${getProvider().modelFor(TIERS.adviseEscalated.role)}: Stakes: high declared`);
+        const a = await advise("done", config.cwd, `${runContext}\nReport: ${join(ctx.runDir, "report.md")}`, ctx.runId, highStakes);
         await writeFile(join(ctx.runDir, `advisor-done-r${round}.md`), a.note + "\n", "utf-8");
         if (!a.ok) {
           console.log(`[advisor] OBJECTION\n${a.note}`);
@@ -656,7 +670,9 @@ async function main(): Promise<RunOutcome> {
         );
         console.log(`[jev] same failure twice: ${same === null ? "unsure, escalating" : same}`);
         if (same !== false) {
-          const a = await advise("stuck", config.cwd, `${runContext}\nLatest evaluator feedback:\n${evaluation.feedback}`, ctx.runId);
+          // Same failure twice on the cheaper tiers: escalate the advisor.
+          console.log(`[tier] advisor stuck check escalates to ${getProvider().modelFor(TIERS.adviseEscalated.role)}: same failure twice on the cheaper tiers`);
+          const a = await advise("stuck", config.cwd, `${runContext}\nLatest evaluator feedback:\n${evaluation.feedback}`, ctx.runId, true);
           await writeFile(join(ctx.runDir, `advisor-stuck-r${round}.md`), a.note + "\n", "utf-8");
           evaluatorFeedback += `\n\nAdvisor on the repeated failure:\n${a.note}`;
         }

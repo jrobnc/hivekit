@@ -15,7 +15,15 @@ mock.module("../dist/sdk-utils.js", {
     // The prompt becomes the findings path so the fake agent knows where to write.
     fillTemplate: (_t, vars) => vars.findingsPath,
     loadPrinciples: async () => "",
-    TIERS: { review: { model: "sonnet", effort: "medium" } },
+    TIERS: {
+      plan: { role: "plan", effort: "high" },
+      build: { role: "build", effort: "medium" },
+      review: { role: "review", effort: "medium" },
+      evaluate: { role: "evaluate", effort: "high" },
+      advise: { role: "advise", effort: "high" },
+      buildEscalated: { role: "build-escalated", effort: "medium" },
+      adviseEscalated: { role: "advise-escalated", effort: "high" },
+    },
   },
 });
 

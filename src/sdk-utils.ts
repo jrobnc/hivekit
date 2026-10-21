@@ -38,21 +38,28 @@ export type { Effort };
 /**
  * Role and effort per agent job. The active provider maps each role to a concrete
  * model: a frontier model plans, judges and advises, a workhorse does the volume.
+ * Every stage starts on its cheapest tier; the run escalates itself on evidence (see
+ * index.ts). A rejected round retries on buildEscalated. The advisor moves to
+ * adviseEscalated when the same failure repeats or the plan marks the run high-stakes.
  */
+export type Tier = { role: Role; effort: Effort };
+
 export const TIERS = {
   plan: { role: "plan", effort: "high" },
   build: { role: "build", effort: "medium" },
   review: { role: "review", effort: "medium" },
   evaluate: { role: "evaluate", effort: "high" },
   advise: { role: "advise", effort: "high" },
-} as const satisfies Record<string, { role: Role; effort: Effort }>;
+  buildEscalated: { role: "build-escalated", effort: "medium" },
+  adviseEscalated: { role: "advise-escalated", effort: "high" },
+} as const satisfies Record<string, Tier>;
 
 /** Cost ledger. HIVEKIT_LEDGER points it elsewhere (the test suite uses a throwaway file). */
 export const LEDGER = process.env.HIVEKIT_LEDGER || join(homedir(), ".cache", "hivekit", "ledger.jsonl");
 
 export interface AgentOptions {
   prompt: string;
-  /** Which provider model tier to use; defaults to "plan" */
+  /** Which provider model tier to use; defaults to "build" */
   role?: Role;
   /** Claude-only override; ignored by other providers */
   model?: string;
@@ -86,7 +93,7 @@ export interface AgentResult {
  */
 export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   const provider = getProvider();
-  const role = opts.role ?? "plan";
+  const role = opts.role ?? "build";
   const model = provider.name === "claude" && opts.model ? opts.model : provider.modelFor(role);
   const maxTurns = opts.maxTurns ?? 30;
 
