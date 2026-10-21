@@ -56,6 +56,7 @@ interprets them. There is no rigid schema and no validator — leniency is inten
 | `## Out of Scope` | Recommended | Explicit non-goals. The restraint boundary; keeps the compiler from sprawling. |
 | `## Evidence` | Optional | Pointers to source material (links, files, notes). Context discipline applies: the Planner cites/summarizes, does not dump. |
 | `## Audience` | Optional | Who it's for / the "first win" — the fastest path to a real outcome for the user. |
+| `Stakes: high\|normal` line | Optional | Owner-declared stakes. `high` sends the advisor's final (done) check to the top model tier; absent means the planner judges. |
 
 > **On `## Bet` — falsifiable intent.** Instead of "build onboarding," write: *"If new users
 > finish onboarding in under 90s, activation rises from 42% to 55%, measured over 7 days."* This
@@ -145,6 +146,8 @@ it is **"what is the verifier, and how much do we trust it."** Three tiers:
 ## Objective
 Add a CSV export button to the reports page so a user can download the current report as a
 spreadsheet in one click.
+
+Stakes: normal
 
 ## Audience
 Users who need to analyze or share a report outside the app. First win: open a report, click

@@ -42,4 +42,8 @@ assertion).
 explicit: what the smallest viable change is, and what you deliberately chose *not* to
 touch. "What I avoided" is as important as what you did.
 
-**Pick the model per stage; never inherit one.** Every stage that calls a model (`claude -p` in a script, a subagent) pins `--model` and `--effort`. The planner names them in the Sprint Contract with a one-line reason, starting from the cheapest tier that can do the job: `haiku` for bulk extraction and classification, `sonnet --effort medium` for everything else, and `opus` only for adjudication or verification where a wrong pass is expensive. Use `fable` only when the task file says Jody approved it for this run. If a stage fails twice on its tier, escalate one tier and record why. A model call without a pin is a bug.
+**Pin the model on every model call the task scripts.** When the task itself calls a model
+(a script, a subagent, an SDK call), every call pins its model and effort, or the provider's
+equivalent, with a one-line reason, starting from the cheapest tier that can do the job. Use
+the top tier only when the intent file explicitly approves it for this run. A stage that fails
+twice on its tier escalates one tier and records why. A model call without a pin is a bug.

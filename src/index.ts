@@ -302,6 +302,10 @@ Examples:
 
 // ── Run management ──────────────────────────────────────────────────
 
+// A `Stakes: high` line in the plan, intent or task: markdown-tolerant (list, quote, heading, bold/italic,
+// ":" or "-"), whole word only, and never the `high|normal` template echo.
+export const STAKES_HIGH_RE = /^[\s>*\-_#]*Stakes[*_]*\s*[:\-–]?[*_]*\s*[*_]*high\b(?!\s*\|)/im;
+
 export function generateRunId(config: HarnessConfig): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -571,8 +575,10 @@ async function main(): Promise<RunOutcome> {
     // --depth quick keeps only the done check (the one that catches a false PASS): on small jobs the
     // plan and stuck checks cost more than the build itself.
     const adviseEarly = advised && config.depth !== "quick";
-    // The plan's Stakes line is the evidence for the done check: high means a wrong pass is expensive.
-    const highStakes = /^\**Stakes:?\**:?\s*high/im.test(plan.planContent);
+    // Stakes: the owner's line (intent file or task text) or the plan's; high means a wrong pass is expensive.
+    const stakesText = `${plan.planContent}\n${ctx.intent?.raw ?? config.task}`;
+    const highStakes = STAKES_HIGH_RE.test(stakesText);
+    if (advised && !/^[\s>*\-_#]*Stakes\b/im.test(stakesText)) console.log("[tier] no Stakes declared; done check stays on the base tier");
     const runContext = `Task: ${config.task}\nPlan: ${plan.planPath}\nRun dir: ${ctx.runDir}`;
 
     // ── Checkpoint 1: plan ──────────────────────────────────────
@@ -590,9 +596,10 @@ async function main(): Promise<RunOutcome> {
       // ── Phase 2: Generate ──────────────────────────────────────
       console.log(`\n═══ Phase 2: Generator (round ${round}) ═══`);
       await updateIndex(ctx, `generating-r${round}`, `Generator round ${round}`);
-      // A rejected round is the evidence to escalate: rounds after a failure build on the stronger tier.
-      const escalateBuild = round > 1 && !!evaluatorFeedback && config.mode !== "review";
-      if (escalateBuild) console.log(`[tier] generator escalates to ${getProvider().modelFor(TIERS.buildEscalated.role)}: round ${round - 1} was rejected`);
+      // A round that was not accepted (evaluator failed it, or it passed and the advisor objected) is the evidence to
+      // escalate; an evaluator error is noise, not evidence, so the next build stays on the base tier.
+      const escalateBuild = round > 1 && lastEvaluation?.status !== "errored";
+      if (escalateBuild) console.log(`[tier] generator escalates to ${getProvider().modelFor(TIERS.buildEscalated.role)}: round ${round - 1} was not accepted`);
       const gen = await runGenerator(ctx, evaluatorFeedback, escalateBuild ? TIERS.buildEscalated : TIERS.build);
       failedToReview = (gen.findings ?? []).filter((f) => f.error).map((f) => ({ dimension: f.dimension, error: f.error! }));
 
@@ -606,7 +613,7 @@ async function main(): Promise<RunOutcome> {
       // ── Checkpoint 3: done (advisor verifies before accepting a PASS) ──
       if (evaluation.status === "passed" && advised) {
         console.log("\n═══ Advisor: done check ═══");
-        if (highStakes) console.log(`[tier] advisor done check escalates to ${getProvider().modelFor(TIERS.adviseEscalated.role)}: the plan says Stakes: high`);
+        if (highStakes) console.log(`[tier] advisor done check escalates to ${getProvider().modelFor(TIERS.adviseEscalated.role)}: Stakes: high declared`);
         const a = await advise("done", config.cwd, `${runContext}\nReport: ${join(ctx.runDir, "report.md")}`, ctx.runId, highStakes);
         await writeFile(join(ctx.runDir, `advisor-done-r${round}.md`), a.note + "\n", "utf-8");
         if (!a.ok) {

@@ -44,19 +44,18 @@ HIVE.md  ──►  Planner  ──►  plan.md  ──►  Generator  ──►
 - **Generator** (Sonnet, Opus after a rejected round) writes the code.
 - **Evaluator** (Opus) grades the result against your **Success Criteria** — running `[auto]` checks for real, judging `[judge]` ones, gating `[human]` ones — and loops until they hold.
 - **Advisor** (Opus, Fable when escalated) checks the plan before execution, verifies nothing was skipped before accepting a PASS, and diagnoses repeated failures mid-loop. Optional — disable with `HIVEKIT_ADVISOR=0`.
+- **Advisor at `--depth quick`** runs only the done check (catches a false PASS); the plan and stuck checks run at standard and deep depth.
+- **Jev** (TypeSafe System One) — an optional, opt-in yes/no gate that decides whether the generator is stuck on the same failure. Off unless `HIVEKIT_JEV=1` and a key is set; text is masked (emails, phone numbers) and capped before it leaves, and spend stops at `HIVEKIT_JEV_BUDGET`.
 
-Every stage starts on its cheapest tier and the run escalates itself only on evidence: a rejected round sends the next build to Opus, and the advisor moves to Fable when the same failure repeats or the plan says `Stakes: high`.
+Every stage starts on its cheapest tier and the run escalates itself only on evidence: a rejected round sends the next build to Opus, and the advisor moves to Fable when the same failure repeats or `Stakes: high` is declared.
 
 | Stage | Starts on | Moves up when |
 |---|---|---|
 | Planner | Opus | never |
 | Generator | Sonnet | the previous round was rejected: Opus |
 | Evaluator | Opus | never |
-| Advisor | Opus | stuck check always, done check if the plan says `Stakes: high`: Fable |
+| Advisor | Opus | stuck check always, done check if `Stakes: high` is declared: Fable |
 | Agent with no role | Sonnet | n/a |
-
-- **Advisor at `--depth quick`** runs only the done check (catches a false PASS); the plan and stuck checks run at standard and deep depth.
-- **Jev** (TypeSafe System One) — an optional, opt-in yes/no gate that decides whether the generator is stuck on the same failure. Off unless `HIVEKIT_JEV=1` and a key is set; text is masked (emails, phone numbers) and capped before it leaves, and spend stops at `HIVEKIT_JEV_BUDGET`.
 
 Same shape as Terraform or a Kubernetes reconcile loop: declare the desired state, a controller drives reality toward it — except here the desired state is *what "done" means*, and the controller is a build loop.
 
@@ -364,7 +363,7 @@ bin/hivekit              strips ANTHROPIC_API_KEY, then runs dist/index.js   (Cl
        ├─ src/intent.ts  loadIntent(): parse HIVE.md → Objective + Success Criteria with [auto|judge|human] tiers
        │                 intentCompilePreamble() feeds the Planner; formatCriteriaForEvaluator() pins the rubric
        ├─ src/planner.ts    Opus agent reads the HIVE.md + the target repo (incl. its CLAUDE.md) → writes plan.md
-       ├─ src/generator.ts  build: 1 Sonnet agent · review: 3–7 parallel Sonnet · improve: 1–3 parallel Sonnet
+       ├─ src/generator.ts  build: 1 Sonnet agent (Opus after a round that was not accepted) · review: 3–7 parallel Sonnet · improve: 1–3 parallel Sonnet (Opus after a round that was not accepted)
        ├─ src/evaluator.ts  Opus agent grades the result vs the pinned criteria → parseEvaluation() gate
        │                    pass → report.md   ·   fail → feedback string → back to the Generator
        └─ src/advisor.ts    Opus advisor (Fable when escalated) at three checkpoints (plan, stuck, done); Jev yes/no fork gate

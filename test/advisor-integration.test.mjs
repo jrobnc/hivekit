@@ -411,6 +411,11 @@ for (const [body, expected] of [
   ["stakes: HIGH", true],
   ["Stakes: normal", false],
   ["# Plan with no stakes line", false],
+  ["- Stakes: high", true],
+  ["Stakes: **high**", true],
+  ["> Stakes: high", true],
+  ["Stakes: highly unlikely", false],
+  ["Stakes: high|normal", false],
 ]) {
   test(`tiers: done check escalate=${expected} for plan body ${JSON.stringify(body)}`, async () => {
     setupTmpDir();
@@ -431,3 +436,36 @@ for (const [body, expected] of [
     }
   });
 }
+
+test("tiers: an intent-file Stakes line escalates the done check without the plan", async () => {
+  setupTmpDir();
+  writeFileSync(join(tmpDir, "HIVE.md"), "## Objective\nX\n\nStakes: high\n\n## Success Criteria\n- [auto] tests pass\n");
+  process.argv = ["node", "index.js", "--intent", join(tmpDir, "HIVE.md"), "--mode", "build", "--cwd", tmpDir];
+  let doneArg;
+  adviseImpl = async (checkpoint, _cwd, _ctx, _runId, escalate) => {
+    if (checkpoint === "done") doneArg = escalate;
+    return { ok: true, note: "ok" };
+  };
+  evaluatorResults = [PASS];
+  try {
+    await main();
+    assert.strictEqual(doneArg, true);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("tiers: an evaluator error does not escalate the next build", async () => {
+  setupTmpDir();
+  setArgv();
+  const ERRORED = { scores: [], status: "errored", reason: "empty_output", passed: false, feedback: "evaluator produced no output", report: "" };
+  adviseImpl = async () => ({ ok: true, note: "ok" });
+  evaluatorResults = [ERRORED, PASS];
+  generatorTiers = [];
+  try {
+    await main();
+    assert.deepEqual(generatorTiers, ["build", "build"]);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
