@@ -102,12 +102,12 @@ export interface Advice {
   note: string;
 }
 
-export async function advise(checkpoint: Checkpoint, cwd: string, context: string, runId: string): Promise<Advice> {
+export async function advise(checkpoint: Checkpoint, cwd: string, context: string, runId: string, escalate = false): Promise<Advice> {
   if (process.env.HIVEKIT_ADVISOR === "0") return { ok: true, note: "advisor off" };
   try {
     const { result } = await runAgent({
-      ...TIERS.advise,
-      label: `advisor-${checkpoint}`,
+      ...(escalate ? TIERS.adviseEscalated : TIERS.advise), // escalated tier is chosen by the loop (index.ts), never here
+      label: `advisor-${checkpoint}${escalate ? "-escalated" : ""}`,
       runId,
       phase: "advisor",
       cwd,

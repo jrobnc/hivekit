@@ -25,7 +25,7 @@ mock.module("@anthropic-ai/claude-agent-sdk", {
 const { claudeProvider } = await import("../../dist/providers/claude.js");
 const { createOpenAICompatibleProvider } = await import("../../dist/providers/openai-compatible.js");
 
-const ROLES = ["plan", "build", "review", "evaluate", "advise"];
+const ROLES = ["plan", "build", "review", "evaluate", "advise", "build-escalated", "advise-escalated"];
 
 test("both providers complete the same golden Read task", async () => {
   const dir = mkdtempSync(join(tmpdir(), "hivekit-contract-"));

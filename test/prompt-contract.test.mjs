@@ -151,3 +151,11 @@ test("build/improve FAIL templates are classified as a decisive failure", () => 
     assert.equal(r.passed, false);
   }
 });
+
+test("prompts carry the Stakes line rule and the model-pin rule", () => {
+  const planner = readFileSync(join(PROMPTS, "planner-build.md"), "utf-8");
+  assert.ok(planner.includes("`Stakes: high` or `Stakes: normal`"));
+  assert.ok(planner.includes("verbatim"));
+  const principles = readFileSync(join(PROMPTS, "principles.md"), "utf-8");
+  assert.ok(principles.includes("A model call without a pin is a bug."));
+});

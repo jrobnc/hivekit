@@ -41,9 +41,20 @@ HIVE.md  ──►  Planner  ──►  plan.md  ──►  Generator  ──►
 ```
 
 - **Planner** (Opus) compiles your `HIVE.md` into a plan.
-- **Generator** (Sonnet) writes the code.
+- **Generator** (Sonnet, Opus after a rejected round) writes the code.
 - **Evaluator** (Opus) grades the result against your **Success Criteria** — running `[auto]` checks for real, judging `[judge]` ones, gating `[human]` ones — and loops until they hold.
-- **Advisor** (Fable) checks the plan before execution, verifies nothing was skipped before accepting a PASS, and diagnoses repeated failures mid-loop. Optional — disable with `HIVEKIT_ADVISOR=0`.
+- **Advisor** (Opus, Fable when escalated) checks the plan before execution, verifies nothing was skipped before accepting a PASS, and diagnoses repeated failures mid-loop. Optional — disable with `HIVEKIT_ADVISOR=0`.
+
+Every stage starts on its cheapest tier and the run escalates itself only on evidence: a rejected round sends the next build to Opus, and the advisor moves to Fable when the same failure repeats or the plan says `Stakes: high`.
+
+| Stage | Starts on | Moves up when |
+|---|---|---|
+| Planner | Opus | never |
+| Generator | Sonnet | the previous round was rejected: Opus |
+| Evaluator | Opus | never |
+| Advisor | Opus | stuck check always, done check if the plan says `Stakes: high`: Fable |
+| Agent with no role | Sonnet | n/a |
+
 - **Advisor at `--depth quick`** runs only the done check (catches a false PASS); the plan and stuck checks run at standard and deep depth.
 - **Jev** (TypeSafe System One) — an optional, opt-in yes/no gate that decides whether the generator is stuck on the same failure. Off unless `HIVEKIT_JEV=1` and a key is set; text is masked (emails, phone numbers) and capped before it leaves, and spend stops at `HIVEKIT_JEV_BUDGET`.
 
@@ -257,7 +268,7 @@ HIVEKIT_PROVIDER=openai-compatible HIVEKIT_PROVIDER_CONFIG=./provider.json hivek
 }
 ```
 
-- Only `frontier` and `workhorse` exist; unknown keys are rejected. Planner, evaluator and advisor use `frontier`; generator and review agents use `workhorse`.
+- Only `frontier` and `workhorse` exist; unknown keys are rejected. Planner, evaluator and advisor use `frontier`; generator and review agents use `workhorse`, except that escalated generator rounds and the escalated advisor use `frontier`.
 - Agents get Read, Glob, Grep, Bash, Write and Edit through `POST {baseUrl}/chat/completions` tool calling. Turn caps apply as usual. Read/Write/Edit/Glob/Grep are confined to the run's cwd (symlinks are not resolved); Bash is not sandboxed. Bash runs without `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_*` or the `apiKeyEnv` variable, defaults to a 120 s timeout and is capped at 600 s. Each request times out after `timeoutMs` (default 300000).
 - The API key is read from the env var named in `apiKeyEnv` (omit it for local servers), sent only as a bearer header; error messages include the status and at most 200 chars of the response body (with the key redacted), never headers or the URL query.
 - **Max by default:** the launcher strips `ANTHROPIC_API_KEY` unless `HARNESS_ALLOW_API_KEY=1` is set, and reads the Keychain token only when the provider is `claude`.
@@ -305,7 +316,7 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `HIVEKIT_PROVIDER` | `claude`, `openai-compatible` | `claude` | Which provider runs the agents; see [Providers](#providers). Unknown values fail the run. |
 | `HIVEKIT_PROVIDER_CONFIG` | file path | unset | JSON config, required for `openai-compatible`. |
 | `HIVEKIT_LANE` | string | `""` | Written to every ledger line as `lane`, so spend can be grouped. |
-| `HIVEKIT_ADVISOR` | `0` to disable | enabled | Controls the Fable advisor checkpoints (plan, stuck, done). Set to `0` to skip all advisor and Jev calls. |
+| `HIVEKIT_ADVISOR` | `0` to disable | enabled | Controls the advisor checkpoints (plan, stuck, done). Set to `0` to skip all advisor and Jev calls. |
 | `HIVEKIT_*_TURNS`, `HIVEKIT_MAX_TURNS` | integer | unset | Per-phase and global turn caps; see [Turn limits](#turn-limits). |
 | `HIVEKIT_LEDGER` | file path | `~/.cache/hivekit/ledger.jsonl` | Where the cost ledger is written. `npm test` points it at a throwaway file so tests never touch your real ledger. |
 | `HIVEKIT_MAX_USD_PER_AGENT` | decimal | unset | Per-agent cost cap passed to the Agent SDK as `maxBudgetUsd`. |
@@ -356,7 +367,7 @@ bin/hivekit              strips ANTHROPIC_API_KEY, then runs dist/index.js   (Cl
        ├─ src/generator.ts  build: 1 Sonnet agent · review: 3–7 parallel Sonnet · improve: 1–3 parallel Sonnet
        ├─ src/evaluator.ts  Opus agent grades the result vs the pinned criteria → parseEvaluation() gate
        │                    pass → report.md   ·   fail → feedback string → back to the Generator
-       └─ src/advisor.ts    Fable advisor at three checkpoints (plan, stuck, done); Jev yes/no fork gate
+       └─ src/advisor.ts    Opus advisor (Fable when escalated) at three checkpoints (plan, stuck, done); Jev yes/no fork gate
   shared:
        ├─ src/sdk-utils.ts  runAgent() wraps the Agent SDK; loadPrinciples() injects the guardrails;
        │                    TIERS maps roles to models; runAgent() appends every call to ~/.cache/hivekit/ledger.jsonl

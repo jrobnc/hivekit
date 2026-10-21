@@ -41,3 +41,5 @@ assertion).
 **State your restraint.** When you plan or implement, make the small-change reasoning
 explicit: what the smallest viable change is, and what you deliberately chose *not* to
 touch. "What I avoided" is as important as what you did.
+
+**Pick the model per stage; never inherit one.** Every stage that calls a model (`claude -p` in a script, a subagent) pins `--model` and `--effort`. The planner names them in the Sprint Contract with a one-line reason, starting from the cheapest tier that can do the job: `haiku` for bulk extraction and classification, `sonnet --effort medium` for everything else, and `opus` only for adjudication or verification where a wrong pass is expensive. Use `fable` only when the task file says Jody approved it for this run. If a stage fails twice on its tier, escalate one tier and record why. A model call without a pin is a bug.

@@ -1,4 +1,4 @@
-export type Role = "plan" | "build" | "review" | "evaluate" | "advise";
+export type Role = "plan" | "build" | "review" | "evaluate" | "advise" | "build-escalated" | "advise-escalated";
 export type Effort = "low" | "medium" | "high" | "max";
 
 export interface ProviderRunInput {
