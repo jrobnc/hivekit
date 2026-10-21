@@ -38,6 +38,12 @@ Boundaries the build must respect (e.g., "no new npm dependencies", "must suppor
 
 What to explicitly skip, to prevent scope creep.
 
+### 5. Stakes (optional)
+
+One line anywhere in the file: `Stakes: high` or `Stakes: normal`. `high` sends the advisor's
+final check to the top model tier; use it when a wrong pass is expensive (output that reaches
+customers or leadership unreviewed, irreversible production writes). Absent, the planner judges.
+
 ## Good vs. bad success criteria
 
 ### Good (checkable)
@@ -94,6 +100,8 @@ require a valid token.
 - OAuth / social login
 - Password reset flow
 - Rate limiting
+
+Stakes: high
 ```
 
 ## Full specification

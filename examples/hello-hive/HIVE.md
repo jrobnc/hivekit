@@ -16,3 +16,5 @@ and verifiable by an actual test run.
 
 ## Out of Scope
 - No CLI, no build tooling, no transliteration of non-Latin scripts.
+
+Stakes: normal
