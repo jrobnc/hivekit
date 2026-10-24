@@ -1,3 +1,5 @@
+import type { Mode } from "../types.js";
+
 export type Role = "plan" | "build" | "review" | "evaluate" | "advise" | "build-escalated" | "advise-escalated";
 export type Effort = "low" | "medium" | "high" | "max";
 
@@ -12,6 +14,8 @@ export interface ProviderRunInput {
   permissionMode: string;
   maxTurns: number;
   maxBudgetUsd?: number;
+  /** Review mode must not load the reviewed repo's settings/hooks (claude adapter). Other providers ignore it. */
+  mode?: Mode;
   onProgress?: (indicator: string) => void;
 }
 

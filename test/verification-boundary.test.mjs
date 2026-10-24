@@ -13,8 +13,8 @@
 // Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmodSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmodSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { assertNoSurvivingSuccessClaim } from "./helpers/claim-oracle.mjs";
@@ -128,13 +128,10 @@ function runCli(ws, script, extraArgs = [], opts = {}) {
     HIVEKIT_TEST_SDK_SCRIPT: scriptPath,
     // These tests script the evaluator boundary; the advisor (own tests) would consume scripted turns.
     HIVEKIT_ADVISOR: "0",
+    ...opts.env,
   };
-  try {
-    const stdout = execFileSync("node", args, { encoding: "utf-8", timeout: 60000, env });
-    return { code: 0, stdout, stderr: "" };
-  } catch (err) {
-    return { code: err.status, stdout: err.stdout ?? "", stderr: err.stderr ?? "" };
-  }
+  const r = spawnSync("node", args, { encoding: "utf-8", timeout: 60000, env });
+  return { code: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
 function runArtifacts(ws) {
@@ -635,4 +632,115 @@ test("E2E: a failing [auto] command fails the run even when the evaluator says P
     const ledger = readFileSync(process.env.HIVEKIT_LEDGER, "utf-8");
     assert.ok(ledger.split("\n").some((l) => l.includes('"phase":"checks"') && l.includes('"contradiction":"evaluator_contradicted_checks"') && l.includes(art.result.runId)));
   }
+});
+
+// ── Loop bookkeeping: crash reports the current round; ledger holds a projection ──
+
+test("E2E: evaluator crash in r2 reports round-2 checks; ledger has no command or output", () => {
+  const ws = makeWorkspace();
+  const ledgerPath = join(ws.dir, "ledger.jsonl");
+  const intent = join(ws.dir, "HIVE.md");
+  writeFileSync(
+    intent,
+    "## Objective\nDo it.\n\n## Success Criteria\n- [auto] counter: `n=$(cat ../count 2>/dev/null || echo 0); echo $((n+1)) > ../count; [ \"$n\" -eq 0 ]`\n",
+    "utf-8"
+  );
+  const calls = [
+    { result: "generator done" },
+    { when: "Pinned Success Criteria", result: FAILING_EVAL },
+    { result: "generator done" },
+    { when: "Pinned Success Criteria", result: "boom", isError: true },
+  ];
+  const run = runCli(ws, { calls }, ["--intent", intent], { argv: ["--mode", "build"], env: { HIVEKIT_LEDGER: ledgerPath } });
+  assert.notEqual(run.code, 0);
+  const art = runArtifacts(ws);
+  assert.equal(art.result.outcome, "crashed");
+  assert.equal(art.result.autoChecks.path, "checks-round-2.json");
+  assert.deepEqual(art.result.autoChecks.failed, [1]);
+  const lines = readFileSync(ledgerPath, "utf-8").split("\n").filter((l) => l.includes('"phase":"checks"'));
+  assert.ok(lines.some((l) => l.includes('"label":"checks-r2"')));
+  for (const l of lines) {
+    assert.ok(!l.includes("stdoutTail") && !l.includes('"command"') && !l.includes("stderrTail"));
+  }
+  const r2 = JSON.parse(lines.find((l) => l.includes('"label":"checks-r2"')));
+  assert.equal(r2.error, false);
+  assert.equal(r2.failedChecks, 1);
+});
+
+// ── Review mode: failed checks are reported, not enforced ──
+
+test("E2E: explicit review mode with a failing check from an outside intent exits 0 and says so", () => {
+  const ws = makeWorkspace();
+  const intent = join(ws.dir, "HIVE.md");
+  writeFileSync(intent, "## Objective\nReview it.\n\n## Success Criteria\n- [auto] fails: `exit 3`\n", "utf-8");
+  const run = runCli(ws, reviewScriptFor(FAILING_EVAL), ["--intent", intent], { argv: ["--mode", "review"] });
+  assert.equal(run.code, 0, run.stdout + run.stderr);
+  const art = runArtifacts(ws);
+  assert.equal(art.result.outcome, "review_completed");
+  assert.deepEqual(art.result.autoChecks.failed, [1]);
+  assert.match(art.report, /reported, not enforced in review mode/);
+});
+
+// ── Review mode never executes commands from the reviewed tree ──
+
+const PROBE = "## Objective\nReview it.\n\n## Success Criteria\n- [auto] probe: `touch pwned`\n";
+const EVAL_SEES_NOT_RUN = (script) => {
+  script.calls[1].when = "auto \\(not run: intent is inside the reviewed tree\\)";
+  return script;
+};
+
+test("E2E: review mode does not run [auto] commands from an intent inside the reviewed tree", () => {
+  const ws = makeWorkspace();
+  writeFileSync(join(ws.repo, "HIVE.md"), PROBE, "utf-8");
+  const run = runCli(ws, EVAL_SEES_NOT_RUN(reviewScriptFor(FAILING_EVAL)), [], { argv: ["--mode", "review"] });
+  assert.equal(run.code, 0, run.stdout + run.stderr);
+  assert.ok(!existsSync(join(ws.repo, "pwned")));
+  const art = runArtifacts(ws);
+  assert.deepEqual(art.result.autoChecksNotRun.criteria, [1]);
+  assert.match(art.report, /\*\*\[auto\] checks:\*\* not run/);
+  assert.match(run.stdout + run.stderr, /WARN: review mode: .*HIVE\.md is inside the reviewed tree/);
+});
+
+test("E2E: review mode runs [auto] commands from an intent outside the tree", () => {
+  const ws = makeWorkspace();
+  const intent = join(ws.dir, "HIVE.md");
+  writeFileSync(intent, PROBE, "utf-8");
+  const run = runCli(ws, reviewScriptFor(FAILING_EVAL), ["--intent", intent], { argv: ["--mode", "review"] });
+  assert.equal(run.code, 0, run.stdout + run.stderr);
+  assert.ok(existsSync(join(ws.repo, "pwned")));
+});
+
+test("E2E: HIVEKIT_REVIEW_ALLOW_BASH=1 runs checks from inside the tree, with the WARN", () => {
+  const ws = makeWorkspace();
+  writeFileSync(join(ws.repo, "HIVE.md"), PROBE, "utf-8");
+  const run = runCli(ws, reviewScriptFor(FAILING_EVAL), [], { argv: ["--mode", "review"], env: { HIVEKIT_REVIEW_ALLOW_BASH: "1" } });
+  assert.equal(run.code, 0, run.stdout + run.stderr);
+  assert.ok(existsSync(join(ws.repo, "pwned")));
+  assert.match(run.stdout + run.stderr, /HIVEKIT_REVIEW_ALLOW_BASH=1/);
+});
+
+// ── No silent verification gap; --check ──
+
+test("E2E: a task-string run without --check warns that nothing is executed", () => {
+  const ws = makeWorkspace();
+  const run = runCli(ws, reviewScriptFor(FAILING_EVAL), [], { argv: ["review the code", "--mode", "review"] });
+  assert.match(run.stdout + run.stderr, /WARN: no \[auto\] commands: nothing is executed at verification/);
+});
+
+test("E2E: --check on a task-string run is run by hivekit", () => {
+  const ws = makeWorkspace();
+  const run = runCli(ws, reviewScriptFor(FAILING_EVAL), ["--check", "exit 3"], { argv: ["review the code", "--mode", "review"] });
+  assert.equal(run.code, 0, run.stdout + run.stderr);
+  const art = runArtifacts(ws);
+  assert.deepEqual(art.result.autoChecks.failed, [1]);
+  assert.ok(existsSync(join(art.runDir, "checks-round-1.json")));
+});
+
+test("E2E: --check together with --intent exits 1", () => {
+  const ws = makeWorkspace();
+  const intent = join(ws.dir, "HIVE.md");
+  writeFileSync(intent, PROBE, "utf-8");
+  const run = runCli(ws, { calls: [] }, ["--intent", intent, "--check", "true"], { argv: ["--mode", "review"] });
+  assert.equal(run.code, 1);
+  assert.match(run.stderr, /--check adds checks to a task-string run/);
 });

@@ -32,6 +32,7 @@ export async function runPlanner(ctx: RunContext): Promise<PlannerOutput> {
     label: "planner",
     runId,
     cwd: config.cwd,
+    mode: config.mode,
     allowedTools: toolsFor(config.mode, ["Read", "Glob", "Grep", "Bash", "Write"]),
     permissionMode: "acceptEdits" as const,
     maxTurns: limits.planner,
@@ -56,6 +57,11 @@ export async function runPlanner(ctx: RunContext): Promise<PlannerOutput> {
   if (!planContent && config.mode === "review" && firstResult?.trim()) {
     await writeFile(planPath, firstResult, "utf-8");
     planContent = firstResult;
+  }
+
+  // A read-only review agent cannot satisfy a "you MUST Write" retry: fail with the real cause.
+  if (!planContent && config.mode === "review") {
+    throw new Error("Review planner returned no spec text (review agents are read-only and cannot write plan.md). Workaround: --plan <path>.");
   }
 
   if (!planContent) {

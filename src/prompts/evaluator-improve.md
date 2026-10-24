@@ -12,7 +12,8 @@ Verify the improvements made by the generator agents against the Improvement Spe
 
 - Improvement Spec: `{{planPath}}`
 - Generator progress: `{{progressPath}}`
-- The actual code changes in the working directory
+- The files in the working directory (Read/Glob/Grep only: no shell, no git, no diff); `progress.md` lists what the generator changed; hivekit's check transcripts, if any appear above
+- If no hivekit check transcript appears under the success criteria below, nothing was executed during verification. Grade Functionality from reading the code, conservatively, and say so in the report.
 
 {{successCriteria}}
 
@@ -28,7 +29,7 @@ For each improvement in the spec:
 - Is the verification criterion met?
 
 ### 3. Check for Regressions
-- Read modified files in full context (not just the changed lines)
+- Read the files `progress.md` lists as modified, in full context
 - Look for broken imports, missing references, changed behavior
 - If the project has build commands, look for hivekit's transcript of them (you cannot run builds yourself) to confirm it still builds
 

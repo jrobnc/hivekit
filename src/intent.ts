@@ -76,6 +76,11 @@ export function extractSuccessCriteria(raw: string): Criterion[] {
     while (k < lines.length && lines[k].trim() === "") k++;
     const cf = k < lines.length ? lines[k].match(FENCE_RE) : null;
     let command: string | undefined;
+    let fenceWarned = false;
+    if (cf && cf[3] !== "check" && tier === "auto") {
+      console.warn(`[intent] WARN: ${cf[3] ? `fence tagged \`${cf[3]}\`` : "untagged fence"} under criterion ${n} ignored; tag it \`check\`.`);
+      fenceWarned = true;
+    }
     if (cf && cf[3] === "check") {
       const { end, closed } = fenceEnd(k, cf);
       if (tier !== "auto") {
@@ -96,7 +101,7 @@ export function extractSuccessCriteria(raw: string): Criterion[] {
       }
     }
     if (command) crit.command = command;
-    else if (tier === "auto") {
+    else if (tier === "auto" && !fenceWarned) {
       console.warn(`[intent] WARN: criterion ${n} "${crit.text}" is [auto] with no command — graded as auto (unverified). Add \`cmd\` at the end of the bullet or a \`\`\`check block under it.`);
     }
     crits.push(crit);
@@ -184,14 +189,14 @@ function fenced(content: string): string {
 /** Render the pinned criteria + tier-routing instructions for the Evaluator.
  *  `checks` are the transcripts of the [auto] commands hivekit ran itself.
  *  Empty string when there is no intent (preserves the prior bare-task behavior). */
-export function formatCriteriaForEvaluator(intent?: IntentDoc, checks: CheckResult[] = []): string {
+export function formatCriteriaForEvaluator(intent?: IntentDoc, checks: CheckResult[] = [], notRun?: string): string {
   if (!intent || intent.successCriteria.length === 0) return "";
   const lines = intent.successCriteria
-    .map((c, i) => `${i + 1}. [${c.tier === "auto" && !c.command ? "auto (unverified)" : c.tier}] ${c.text}`)
+    .map((c, i) => `${i + 1}. [${c.tier === "auto" && !c.command ? "auto (unverified)" : c.tier === "auto" && notRun ? `auto (not run: ${notRun})` : c.tier}] ${c.text}`)
     .join("\n");
   const transcripts = intent.successCriteria
     .map((c, i) => {
-      if (!c.command) return "";
+      if (!c.command || notRun) return "";
       const r = checks.find((k) => k.index === i + 1);
       if (!r) return `${i + 1}. \`${c.command}\` → NO TRANSCRIPT — hivekit did not run this check; grade it FAIL.`;
       const how = r.timedOut ? "timed out" : r.exitCode === null ? "did not run to completion" : `exit ${r.exitCode}`;
@@ -218,6 +223,7 @@ criteria you infer. Each carries a verifier tier:
             That transcript is the ONLY admissible evidence for the criterion — grade from it, do not
             claim to have run anything, and do not override it. A non-zero exit or timeout already
             fails the round in code.
+- [auto (not run: …)] → hivekit did not execute the command; grade it by reading the code, conservatively.
 - [auto (unverified)] → no command was given; grade it by reading the code, conservatively.
 - [judge] → score against the criterion; be skeptical, default conservative.
 - [human] → you CANNOT pass this. Report it as PENDING HUMAN SIGN-OFF. Never mark a [human]

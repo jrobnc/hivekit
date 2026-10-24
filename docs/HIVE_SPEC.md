@@ -125,7 +125,7 @@ it is **"what is the verifier, and how much do we trust it."** Three tiers:
 3. **Route by tier:**
    - `[auto]` → the orchestrator runs the command itself (a trailing `cmd` code span on the
      bullet, or a ```check block under it) and hands the Evaluator the transcript as the only admissible evidence; a failed
-     check fails the round in code. An `[auto]` with no command is `auto (unverified)`.
+     check fails the round in code. An `[auto]` with no command is `auto (unverified)`. Do not background processes in a check (`cmd &`): one left running after the check exits is abandoned and recorded as `orphanedPipes`.
    - `[judge]` → the Evaluator scores the criterion against the rubric; single evaluator
      today; an independent panel for high-stakes criteria is planned.
    - `[human]` → the Evaluator marks **pending human sign-off** and the run terminates at that

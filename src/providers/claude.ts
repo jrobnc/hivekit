@@ -1,5 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, PermissionMode, SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { Provider, ProviderRunInput, ProviderRunOutput, Role } from "./types.js";
 
 /** Aliases, not pinned ids, so each new release is picked up. */
@@ -32,6 +32,10 @@ export const claudeProvider: Provider = {
       effort: input.effort,
       // ponytail: one optional per-agent cap; per-run caps when the ledger shows a need
       maxBudgetUsd: input.maxBudgetUsd,
+      // SDK doc: "When omitted, all sources are loaded (matches CLI defaults)" — i.e. the reviewed repo's
+      // .claude/settings.json + settings.local.json, whose hooks run shell commands. Review mode runs on
+      // unfamiliar code, so it loads the user's settings only. Conditional spread: other modes keep the key absent.
+      ...(input.mode === "review" && { settingSources: ["user"] as SettingSource[] }),
     };
 
     let result = "";

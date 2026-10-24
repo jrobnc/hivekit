@@ -123,3 +123,44 @@ test("review planner: the returned spec is saved to plan.md", async () => {
   await runPlanner(ctx);
   assert.equal(readFileSync(join(ctx.runDir, "plan.md"), "utf-8"), "# Review Spec\nscope");
 });
+
+// ── reviewChecksBlocked: an intent inside the reviewed tree is untrusted ──
+{
+  const { mkdirSync, writeFileSync, symlinkSync } = await import("node:fs");
+  const { reviewChecksBlocked } = await import("../dist/trust.js");
+  const base = mkdtempSync(join(tmpdir(), "hivekit-inside-"));
+  const cwd = join(base, "repo");
+  const out = join(base, "out");
+  mkdirSync(cwd); mkdirSync(out);
+  writeFileSync(join(cwd, "HIVE.md"), "x");
+  writeFileSync(join(out, "HIVE.md"), "x");
+  symlinkSync(join(out, "HIVE.md"), join(cwd, "link.md"));
+  symlinkSync(out, join(cwd, "linkdir"));
+  mkdirSync(join(cwd, "..notes"));
+  writeFileSync(join(cwd, "..notes", "HIVE.md"), "x");
+  const blocked = (p, env = {}) => reviewChecksBlocked("review", p, cwd, env);
+
+  test("reviewChecksBlocked: inside the tree is blocked", () => {
+    assert.equal(blocked(join(cwd, "HIVE.md")), "intent is inside the reviewed tree");
+  });
+  test("reviewChecksBlocked: an in-tree dir named `..notes` is inside, not a parent climb", () => {
+    assert.equal(blocked(join(cwd, "..notes", "HIVE.md")), "intent is inside the reviewed tree");
+  });
+  test("reviewChecksBlocked: outside the tree is allowed", () => {
+    assert.equal(blocked(join(out, "HIVE.md")), undefined);
+  });
+  test("reviewChecksBlocked: a symlink inside pointing outside counts as inside", () => {
+    assert.ok(blocked(join(cwd, "link.md")));
+  });
+  test("reviewChecksBlocked: a symlinked dir inside cwd counts as inside", () => {
+    assert.ok(blocked(join(cwd, "linkdir", "HIVE.md")));
+  });
+  test("reviewChecksBlocked: env opt-in, non-review modes and no intent return undefined", () => {
+    assert.equal(blocked(join(cwd, "HIVE.md"), { HIVEKIT_REVIEW_ALLOW_BASH: "1" }), undefined);
+    assert.equal(reviewChecksBlocked("build", join(cwd, "HIVE.md"), cwd, {}), undefined);
+    assert.equal(reviewChecksBlocked("review", undefined, cwd, {}), undefined);
+  });
+  test("reviewChecksBlocked: a missing path fails closed", () => {
+    assert.ok(blocked(join(cwd, "nope.md")));
+  });
+}

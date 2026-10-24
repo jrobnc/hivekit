@@ -219,6 +219,7 @@ export interface ResultInput {
   turnLimits?: TurnLimits;
   failedToReview?: { dimension: string; error: string }[];
   autoChecks?: RunResult["autoChecks"];
+  autoChecksNotRun?: RunResult["autoChecksNotRun"];
   timestamp?: string;
 }
 
@@ -246,6 +247,7 @@ export function buildRunResult(input: ResultInput): RunResult {
   };
   if (input.error !== undefined) result.error = input.error;
   if (input.autoChecks) result.autoChecks = input.autoChecks;
+  if (input.autoChecksNotRun) result.autoChecksNotRun = input.autoChecksNotRun;
   if (input.turnLimits !== undefined) result.turnLimits = input.turnLimits;
   if (input.failedToReview?.length) {
     result.failedToReview = input.failedToReview;
@@ -315,9 +317,15 @@ export function renderVerdictBanner(result: RunResult): string {
     lines.push(`- **Error:** ${result.error.replace(/\s*[\r\n]+\s*/g, " ⏎ ").slice(0, 500)}`);
   }
   if (result.autoChecks) {
+    const n = result.autoChecks.failed.length;
     lines.push(
-      `- **[auto] checks:** ${result.autoChecks.total} run by hivekit itself (not by an agent), ${result.autoChecks.failed.length} failed — ${result.autoChecks.path}`
+      result.mode === "review" && n
+        ? `- **[auto] checks:** ${n} auto checks failed (reported, not enforced in review mode) — ${result.autoChecks.path}`
+        : `- **[auto] checks:** ${result.autoChecks.total} run by hivekit itself (not by an agent), ${n} failed — ${result.autoChecks.path}`
     );
+  }
+  if (result.autoChecksNotRun) {
+    lines.push(`- **[auto] checks:** not run — ${result.autoChecksNotRun.reason} (criteria ${result.autoChecksNotRun.criteria.join(", ")})`);
   }
   if (result.failedToReview?.length) {
     const dims = result.failedToReview.map((d) => `${d.dimension} (${d.error})`).join("; ");

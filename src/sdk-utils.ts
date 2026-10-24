@@ -4,7 +4,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { turnCapMessage } from "./turns.js";
 import { trackAgent } from "./registry.js";
-import type { TurnPhase } from "./types.js";
+import type { Mode, TurnPhase } from "./types.js";
 import { getProvider } from "./providers/index.js";
 import type { Effort, Role, ProviderRunOutput } from "./providers/types.js";
 
@@ -79,6 +79,8 @@ export interface AgentOptions {
   cwd?: string;
   allowedTools?: string[];
   permissionMode?: string;
+  /** Run mode; review mode keeps the reviewed repo's settings/hooks out of the agent */
+  mode?: Mode;
   maxTurns?: number;
   /** Phase name; when set, a max-turns stop throws a named cap-hit error */
   phase?: TurnPhase | "advisor";
@@ -120,6 +122,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
       permissionMode: opts.permissionMode ?? "acceptEdits",
       maxTurns,
       maxBudgetUsd: positiveNumber(process.env.HIVEKIT_MAX_USD_PER_AGENT),
+      mode: opts.mode,
       onProgress: opts.onProgress,
     });
     thrown = out.thrown;

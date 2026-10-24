@@ -289,7 +289,7 @@ export async function runEvaluator(
     findingsDir,
     progressPath,
     principles: await loadPrinciples(),
-    successCriteria: formatCriteriaForEvaluator(ctx.intent, checks),
+    successCriteria: formatCriteriaForEvaluator(ctx.intent, checks, ctx.checksNotRun),
   });
 
   console.log(
@@ -301,6 +301,7 @@ export async function runEvaluator(
     ...TIERS.evaluate,
     label: `evaluator-r${round}`,
     cwd: config.cwd,
+    mode: config.mode,
     // Read-only in EVERY mode: command results come from hivekit's own transcripts, and hivekit saves the report.
     allowedTools: [...READ_ONLY_TOOLS],
     permissionMode: "acceptEdits",

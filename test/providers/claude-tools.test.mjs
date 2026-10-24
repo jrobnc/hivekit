@@ -14,8 +14,8 @@ mock.module("@anthropic-ai/claude-agent-sdk", {
 });
 const { claudeProvider } = await import("../../dist/providers/claude.js");
 
-const run = (allowedTools) =>
-  claudeProvider.run({ prompt: "p", model: "m", cwd: ".", allowedTools, permissionMode: "acceptEdits", maxTurns: 1 });
+const run = (allowedTools, mode) =>
+  claudeProvider.run({ prompt: "p", model: "m", cwd: ".", allowedTools, permissionMode: "acceptEdits", maxTurns: 1, mode });
 
 test("claude adapter: a list without Write becomes the hard tool set", async () => {
   await run(["Read", "Glob", "Grep"]);
@@ -25,4 +25,13 @@ test("claude adapter: a list without Write becomes the hard tool set", async () 
 test("claude adapter: writers keep the SDK default tool set", async () => {
   await run(["Read", "Write", "Edit", "Bash"]);
   assert.equal(seen.at(-1).tools, undefined);
+});
+
+test("claude adapter: review mode loads user settings only; other modes leave settingSources absent", async () => {
+  await run(["Read"], "review");
+  assert.deepEqual(seen.at(-1).settingSources, ["user"]);
+  for (const mode of ["build", "improve", undefined]) {
+    await run(["Read"], mode);
+    assert.equal("settingSources" in seen.at(-1), false, `mode ${mode}`);
+  }
 });

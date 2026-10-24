@@ -161,3 +161,11 @@ test("prompts carry the Stakes line rule and the model-pin rule", () => {
   const principles = readFileSync(join(PROMPTS, "principles.md"), "utf-8");
   assert.ok(principles.includes("A model call without a pin is a bug."));
 });
+
+test("evaluator prompts do not demand proof the evaluator cannot gather", async () => {
+  const { readFileSync } = await import("node:fs");
+  for (const f of ["build", "improve"]) {
+    const t = readFileSync(new URL(`../src/prompts/evaluator-${f}.md`, import.meta.url), "utf-8");
+    assert.ok(!t.includes("REQUIRE proof of") && !t.includes("Read modified files"));
+  }
+});

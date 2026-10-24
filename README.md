@@ -86,7 +86,7 @@ A `HIVE.md` is human-authored markdown (**not** YAML). Every **Success Criterion
 ## Objective
 Add a CSV export button to the reports page.
 ## Success Criteria
-- [auto]  GET /reports/:id/export.csv returns 200 text/csv; an integration test covers 0 rows and many.
+- [auto]  GET /reports/:id/export.csv returns 200 text/csv; an integration test covers 0 rows and many: `npm test -- export`
 - [judge] Column order + headers match what's on screen — intuitive in a spreadsheet.
 - [human] Sign-off that the file opens cleanly in Excel and Google Sheets.
 ## Constraints
@@ -117,13 +117,21 @@ Give an `[auto]` criterion its command in one of two forms:
 
 **A trailing code span on an `[auto]` bullet is a command and will be executed** (a bullet ending in `` `ReportsPage` `` will run it and fail). If a bullet has both forms, the `check` block wins.
 
-Before every evaluation round hivekit runs each command itself (`bash -lc`, sequentially, in `--cwd`, `ANTHROPIC_API_KEY` removed, 600 s per check; `HIVEKIT_CHECK_TIMEOUT` seconds overrides). It records a transcript in `checks-round-N.json` and gives the Evaluator that transcript as **the only admissible evidence** — the Evaluator has `Read/Glob/Grep` only and cannot run anything. A non-zero exit or a timeout fails the round in code (`auto_check_failed`), whatever the Evaluator writes. The command is **your** text from `HIVE.md`, not agent text, and it is not sandboxed.
+Before every evaluation round hivekit runs each command itself (`bash -lc`, sequentially, in `--cwd`). The environment is stripped first: `ANTHROPIC_*`, `CLAUDE_CODE_OAUTH_TOKEN` and any variable whose name ends in `TOKEN`, `SECRET`, `PASSWORD`, `API_KEY` or `PRIVATE_KEY` are removed; `HIVEKIT_CHECK_ENV_KEEP` (comma-separated names) passes named secret-looking variables through, but never the `ANTHROPIC_*`/OAuth credentials. Each check gets 600 s (`HIVEKIT_CHECK_TIMEOUT` seconds overrides, clamped to Node's timer maximum, about 24.8 days); on timeout the process group gets SIGTERM, then SIGKILL 5 s later. Do not background processes in a check: one that exits 0 but leaves a background process running is recorded `orphanedPipes: true` and its pipes are abandoned. It records a transcript in `checks-round-N.json` and gives the Evaluator that transcript as **the only admissible evidence** — the Evaluator has `Read/Glob/Grep` only and cannot run anything. A non-zero exit or a timeout fails the round in code (`auto_check_failed`), whatever the Evaluator writes. Commands are not sandboxed. **Who is trusted:** in build and improve mode the intent file is trusted and its commands run. In review mode the commands run only if the intent file is outside `--cwd` (both paths realpath'd; a symlink located inside `--cwd` counts as inside), or they come from `--check`, or `HIVEKIT_REVIEW_ALLOW_BASH=1` is set. Otherwise they are not run: the criterion is reported as `auto (not run: intent is inside the reviewed tree)` and hivekit prints one WARN.
 
 An `[auto]` bullet with no command still works but is labelled `auto (unverified)`, graded from the code, and parsing prints a `WARN` line for it.
 
 ### Review mode is read-only
 
-In `--mode review` the planner, reviewers, evaluator and advisor get `Read/Glob/Grep` and nothing else, so a prompt injection in unfamiliar code cannot turn into code execution; hivekit saves the spec, findings and report they return. `[auto]` commands in a review `HIVE.md` are still run by hivekit and the report banner says so. `HIVEKIT_REVIEW_ALLOW_BASH=1` gives the planner, reviewers and advisor `Bash` back (the evaluator never gets it) and prints a warning: a prompt injection in the reviewed repo can then execute commands on your machine.
+In `--mode review` the planner, reviewers, evaluator and advisor get `Read/Glob/Grep` and nothing else, so a prompt injection in unfamiliar code cannot turn into code execution; hivekit saves the spec, findings and report they return. What can and cannot run on your machine in review mode:
+
+- Agents get `Read/Glob/Grep` only, no shell.
+- Only your user-level Claude settings load. The reviewed repo's `.claude/settings*.json`, its hooks and its `CLAUDE.md` are not loaded.
+- `[auto]` commands from a `HIVE.md` inside the reviewed repo are **not** run.
+- What does run: commands from an intent file outside the repo, or from `--check`, through `bash -lc` (your login profile) with the environment stripped as above.
+- Failed checks are reported, not enforced: an explicit `--mode review` run still exits 0, and the banner says `reported, not enforced in review mode`.
+- `HIVEKIT_REVIEW_ALLOW_BASH=1` turns both back on: `Bash` for the planner, reviewers and advisor (the evaluator never gets it) and the commands of a repo-resident intent. A prompt injection in the reviewed repo can then execute commands on your machine.
+- hivekit writes `.hivekit/runs/` and `.git/info/exclude` into the repo, and sends repo content to the model provider.
 
 > A criterion with no verifier is a wish, not a criterion. The tier sets autonomy — `[auto]` runs free, `[human]` stops at a gate. Full spec: **[docs/HIVE_SPEC.md](docs/HIVE_SPEC.md)**.
 
@@ -341,8 +349,9 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `HIVEKIT_LANE` | string | `""` | Written to every ledger line as `lane`, so spend can be grouped. |
 | `HIVEKIT_ADVISOR` | `0` to disable | enabled | Controls the advisor checkpoints (plan, stuck, done). Set to `0` to skip all advisor and Jev calls. |
 | `HIVEKIT_*_TURNS`, `HIVEKIT_MAX_TURNS` | integer | unset | Per-phase and global turn caps; see [Turn limits](#turn-limits). |
-| `HIVEKIT_CHECK_TIMEOUT` | seconds | `600` | Per-check timeout for `[auto]` commands hivekit runs itself; an invalid value falls back to the default. |
-| `HIVEKIT_REVIEW_ALLOW_BASH` | `1` | unset | Gives review-mode planner, reviewers and advisor `Bash` (default: `Read/Glob/Grep` only). A prompt injection in the reviewed repo can then execute commands. The evaluator never gets Bash. |
+| `HIVEKIT_CHECK_TIMEOUT` | seconds | `600` | Per-check timeout for `[auto]` commands hivekit runs itself (SIGTERM, then SIGKILL after 5 s); clamped to Node's timer maximum; an invalid value falls back to the default. |
+| `HIVEKIT_CHECK_ENV_KEEP` | comma-separated names | unset | Secret-looking variables (`*TOKEN`, `*SECRET`, `*PASSWORD`, `*API_KEY`, `*PRIVATE_KEY`) to pass to `[auto]` checks. `ANTHROPIC_*` and `CLAUDE_CODE_OAUTH_TOKEN` are always removed. |
+| `HIVEKIT_REVIEW_ALLOW_BASH` | `1` | unset | Gives review-mode planner, reviewers and advisor `Bash` (default: `Read/Glob/Grep` only), and also runs `[auto]` commands from an intent inside the reviewed repo. A prompt injection or hostile `HIVE.md` in the reviewed repo can then execute commands. The evaluator never gets Bash. |
 | `HIVEKIT_LEDGER` | file path | `~/.cache/hivekit/ledger.jsonl` | Where the cost ledger is written. `npm test` points it at a throwaway file so tests never touch your real ledger. |
 | `HIVEKIT_MAX_USD_PER_AGENT` | decimal | unset | Per-agent cost cap passed to the Agent SDK as `maxBudgetUsd`. |
 | `HIVEKIT_MAX_RUNS` | positive integer | `1` | Max concurrent hivekit runs on the machine; a further run is refused with exit 75. |
@@ -357,7 +366,7 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 
 `CLAUDE_CODE_OAUTH_TOKEN` is deliberately left untouched — it is the Claude Max credential that subprocess authenticates with.
 
-Every `runAgent` call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, model, provider, effort, usd, ms, cwd, maxTurns, error, runId, phase, turns, usage{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}, lane`) for cost tracking and auditability. Each round with `[auto]` commands adds one `phase: "checks"` line (`usd: 0`, the check transcripts, and `contradiction: "evaluator_contradicted_checks"` when the evaluator said PASS over a failed check).
+Every `runAgent` call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, model, provider, effort, usd, ms, cwd, maxTurns, error, runId, phase, turns, usage{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}, lane`) for cost tracking and auditability. Each round with `[auto]` commands adds one `phase: "checks"` line (`usd: 0`, `failedChecks`, `error` (true only if a check could not be spawned), and per check `{index, exitCode, timedOut, durationMs, bytesStdout, bytesStderr}`). When the evaluator said PASS over a failed check, a separate `phase: "checks"` line carries `contradiction: "evaluator_contradicted_checks"`. The ledger holds no commands and no output; those stay in the run directory.
 
 ## Memory and concurrency
 

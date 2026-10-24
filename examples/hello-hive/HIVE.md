@@ -6,8 +6,11 @@ This is the end-to-end proof target for the HIVE.md intent-as-source loop — sm
 and verifiable by an actual test run.
 
 ## Success Criteria
-- [auto] `npm test` passes in this directory, including a test file for `slugify` that covers: spaces become hyphens, mixed/upper case becomes lowercase, and leading/trailing/duplicate separators are collapsed.
-- [auto] `slugify` is exported as a named ESM export from `src/slugify.js`.
+- [auto] tests pass, including a slugify test covering spaces→hyphens, lowercasing, and collapsed leading/trailing/duplicate separators: `npm test`
+- [auto] slugify is a named ESM export of src/slugify.js
+  ```check
+  node -e "import('./src/slugify.js').then(m => process.exit(typeof m.slugify === 'function' ? 0 : 1))"
+  ```
 - [judge] The implementation is minimal and idiomatic — a small pure function, no new dependencies, no over-engineering.
 
 ## Constraints

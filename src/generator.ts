@@ -107,6 +107,7 @@ async function runReviewGenerators(
         ...TIERS.review,
         label: `review-${dim}`,
         cwd: config.cwd,
+        mode: "review",
         allowedTools: toolsFor("review", ["Read", "Glob", "Grep", "Bash", "Write"]),
         permissionMode: "acceptEdits",
         maxTurns: resolveTurnLimits(config).review,

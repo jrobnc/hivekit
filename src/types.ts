@@ -32,6 +32,13 @@ export interface CheckResult {
   durationMs: number;
   stdoutTail: string;
   stderrTail: string;
+  /** Total bytes seen on each stream (the tails are bounded). */
+  bytesStdout: number;
+  bytesStderr: number;
+  /** Set only when true: the shell exited but a background child still held the pipes. */
+  orphanedPipes?: true;
+  /** Set only when true: bash could not be spawned. */
+  spawnFailed?: true;
 }
 export interface IntentDoc {
   raw: string;
@@ -54,6 +61,8 @@ export interface HarnessConfig {
   planFile?: string;
   /** Path to a HIVE.md / intent.md that drives the run (intent-as-source) */
   intentFile?: string;
+  /** Commands from --check (task-string runs only) */
+  checks: string[];
   /** Also emit a structured intent.yaml alongside the markdown artifacts */
   emitYaml?: boolean;
   /** Max turns for every phase unless a per-phase override is set; see README → Turn limits */
@@ -71,6 +80,8 @@ export interface RunContext {
   config: HarnessConfig;
   /** Parsed HIVE.md driving this run, if any (Success Criteria pin the rubric) */
   intent?: IntentDoc;
+  /** Set when review mode refuses to run the intent's [auto] commands; the reason. */
+  checksNotRun?: string;
 }
 
 export interface Finding {
@@ -174,7 +185,9 @@ export interface RunResult {
   /** Turn limits in force for this run. */
   turnLimits?: TurnLimits;
   /** [auto] commands hivekit ran itself (not an agent). Present only when any ran. */
-  autoChecks?: { total: number; failed: number[]; path: string };
+  autoChecks?: { total: number; failed: number[]; path: string; orphanedPipes?: number[] };
+  /** [auto] criteria (1-based) hivekit declined to run, and why. */
+  autoChecksNotRun?: { criteria: number[]; reason: string };
   /** Populated only when outcome === "crashed". */
   error?: string;
   timestamp: string;

@@ -18,7 +18,11 @@ The `HIVEKIT_JEV=1` gate is off by default. When you enable it (and provide a ke
 
 ## Local cost ledger
 
-HiveKit writes a cost ledger to `~/.cache/hivekit/ledger.jsonl`. Set `HIVEKIT_LEDGER` to use a different path. Each entry holds the model, token counts, cost, and a timestamp. The file stays on your machine.
+HiveKit writes a cost ledger to `~/.cache/hivekit/ledger.jsonl`. Set `HIVEKIT_LEDGER` to use a different path. Each agent call adds one entry: `ts, label, model, provider, effort, usd, ms, cwd, maxTurns, error, runId, phase, turns`, token `usage` counts and `lane`. Each evaluation round that ran `[auto]` checks adds a line with, per check, only `{index, exitCode, timedOut, durationMs, bytesStdout, bytesStderr}`, plus `failedChecks`, and a separate line if the evaluator contradicted a failed check. The `cwd` path is recorded. The ledger holds no prompts, no commands and no command output. The file stays on your machine.
+
+## Run directory
+
+`.hivekit/runs/<id>/` inside the working directory holds `plan.md`, progress and findings files, `report.md`, `result.json`, advisor notes, an optional `intent.yaml`, and `checks-round-N.json`. The last one has each `[auto]` command's text and the last 8 KiB of its stdout and stderr, which can include anything your command prints. Delete the directory to remove it.
 
 ## Contact
 

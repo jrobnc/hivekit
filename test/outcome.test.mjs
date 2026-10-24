@@ -472,3 +472,9 @@ test("buildRunResult throws for outcome passed with failed autoChecks", () => {
     })
   );
 });
+
+test("review banner says failed [auto] checks were reported, not enforced", () => {
+  const r = result("review_completed", { autoChecks: { total: 1, failed: [1], path: "checks-round-1.json" } });
+  const composed = composeReport("## Report\nbody\n", r);
+  assert.match(composed, /1 auto checks failed \(reported, not enforced in review mode\) — checks-round-1\.json/);
+});

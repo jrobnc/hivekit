@@ -203,3 +203,27 @@ test("formatCriteriaForEvaluator hands over hivekit's transcript as the only evi
   assert.ok(out.includes("````\na ``` b\n````"), "fence outgrows backticks in the output");
   assert.match(formatCriteriaForEvaluator(intent), /NO TRANSCRIPT/);
 });
+
+test("a non-check fence under [auto] gives exactly one WARN naming the tag", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [auto] suite passes\n  ```sh\n  npm test\n  ```")).successCriteria;
+  assert.equal(c[0].command, undefined);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[0], /fence tagged `sh` under criterion 1 ignored; tag it `check`/);
+});
+
+test("an untagged fence under [auto] gives one WARN", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  parseIntent(doc("- [auto] suite passes\n  ```\n  npm test\n  ```"));
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[0], /untagged fence under criterion 1 ignored; tag it `check`/);
+});
+
+test("examples/hello-hive/HIVE.md: every [auto] criterion has a command", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const intent = await loadIntent(new URL("../examples/hello-hive/HIVE.md", import.meta.url).pathname);
+  const autos = intent.successCriteria.filter((c) => c.tier === "auto");
+  assert.equal(autos.length, 2);
+  for (const c of autos) assert.ok(c.command, c.text);
+  assert.equal(warn.mock.callCount(), 0);
+});

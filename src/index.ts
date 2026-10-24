@@ -15,7 +15,7 @@ import { runGenerator } from "./generator.js";
 import { runEvaluator } from "./evaluator.js";
 import { advise, jevYesNo } from "./advisor.js";
 import { TIERS, appendLedger } from "./sdk-utils.js";
-import { runChecks, checkTimeoutMs, reviewBashWarning } from "./trust.js";
+import { runChecks, checkTimeoutMs, reviewBashWarning, reviewChecksBlocked } from "./trust.js";
 import { loadIntent, intentCompilePreamble, toIntentYaml } from "./intent.js";
 import {
   applyCheckGate,
@@ -74,6 +74,7 @@ function parseArgs(argv: string[]): HarnessConfig {
   let planFile: string | undefined;
   let intentFile: string | undefined;
   let emitYaml = false;
+  const checks: string[] = [];
   let maxTurns: number | undefined;
   const turns: Partial<Record<TurnPhase, number>> = {};
   let explicitMode = false;
@@ -140,6 +141,9 @@ function parseArgs(argv: string[]): HarnessConfig {
       case "--intent":
         intentFile = resolve(nextArg("--intent"));
         break;
+      case "--check":
+        checks.push(nextArg("--check"));
+        break;
       case "--yaml":
         emitYaml = true;
         break;
@@ -199,6 +203,7 @@ function parseArgs(argv: string[]): HarnessConfig {
     sprint,
     planFile,
     intentFile,
+    checks,
     emitYaml,
     maxTurns,
     turns,
@@ -271,6 +276,7 @@ Options:
   --plan <path>                    Reuse an existing plan file (skip planner)
   --intent <path>                  Drive the run from a HIVE.md / intent.md (intent-as-source)
   [auto] checks                    "- [auto] text: \`cmd\`" or a \`\`\`check block under the bullet; hivekit runs it, not the agent
+  --check <cmd>                    Add an [auto] check to a task-string run (repeatable; not with --intent)
   --yaml                           Also emit a structured intent.yaml alongside the markdown (opt-in)
   --max-turns <N>                  Max turns for every phase (overridden per phase below)
   --planner-turns <N>              Planner turns (default: 60 + 1/spec path, max 150)
@@ -287,6 +293,7 @@ Environment:
   HIVEKIT_MAX_AGENTS               Max parallel agents per phase (default: 3; 1 under memory pressure)
   HIVEKIT_RUNS_DIR                 Run registry directory (default: ~/.hivekit/runs)
   HIVEKIT_CHECK_TIMEOUT            Seconds before an [auto] check is killed (default: 600)
+  HIVEKIT_CHECK_ENV_KEEP           Comma-separated names of secret-looking env vars to pass to [auto] checks
   HIVEKIT_REVIEW_ALLOW_BASH=1      Give review planner/reviewers/advisor Bash (default: read-only; prompt-injection risk)
   HIVE_ADMIT=1                     Bypass the admission checks (active run + memory pressure)
 
@@ -418,6 +425,8 @@ async function finalizeRun(
   const reportPath = join(runDir, "report.md");
   const resultPath = join(runDir, "result.json");
 
+  const orphanedPipes = (args.checks ?? []).filter((c) => c.orphanedPipes).map((c) => c.index);
+  const orphaned = orphanedPipes.length ? { orphanedPipes } : {};
   const result = buildRunResult({
     runId,
     mode: config.mode,
@@ -433,7 +442,10 @@ async function finalizeRun(
     turnLimits: resolveTurnLimits(config),
     failedToReview: args.failedToReview,
     autoChecks: args.checks?.length
-      ? { total: args.checks.length, failed: args.checks.filter(isFailedCheck).map((c) => c.index), path: `checks-round-${args.checksRound}.json` }
+      ? { total: args.checks.length, failed: args.checks.filter(isFailedCheck).map((c) => c.index), path: `checks-round-${args.checksRound}.json`, ...orphaned }
+      : undefined,
+    autoChecksNotRun: ctx.checksNotRun && ctx.intent && ctx.intent.successCriteria.some((c) => c.command)
+      ? { criteria: ctx.intent.successCriteria.flatMap((c, i) => (c.command ? [i + 1] : [])), reason: ctx.checksNotRun }
       : undefined,
   });
 
@@ -511,6 +523,10 @@ async function main(): Promise<RunOutcome> {
   }
   const config = parseArgs(process.argv);
   const intent = await resolveIntent(config);
+  if (intent && config.checks.length) {
+    console.error("Error: --check adds checks to a task-string run; put the command on the intent's [auto] bullet");
+    process.exit(1);
+  }
 
   // Fail before any phase on a bad provider config; there is no fallback to another provider.
   try { getProvider(); } catch (err) { console.error(`Error: ${err instanceof Error ? err.message : err}`); process.exit(1); }
@@ -537,7 +553,16 @@ async function main(): Promise<RunOutcome> {
   if (bashWarning) console.warn(bashWarning);
 
   const ctx = await initRun(config);
-  ctx.intent = intent;
+  ctx.intent = intent ?? (config.checks.length
+    ? { raw: config.task, objective: config.task, successCriteria: config.checks.map((c) => ({ tier: "auto" as const, text: c, command: c })) }
+    : undefined);
+  ctx.checksNotRun = reviewChecksBlocked(config.mode, config.intentFile, config.cwd);
+  const hasCommand = ctx.intent?.successCriteria.some((c) => c.command);
+  if (ctx.checksNotRun && hasCommand) {
+    console.warn(`[hivekit] WARN: review mode: ${config.intentFile} is inside the reviewed tree; its [auto] commands are not run (HIVEKIT_REVIEW_ALLOW_BASH=1 runs them).`);
+  } else if (!hasCommand) {
+    console.warn("[hivekit] WARN: no [auto] commands: nothing is executed at verification; the evaluator grades from code and progress.md only");
+  }
   console.log(`Run ID: ${ctx.runId}`);
   console.log(`Turn limits: ${describeTurnLimits(resolveTurnLimits(config), config.mode)}`);
   console.log(`Artifacts: ${ctx.runDir}/\n`);
@@ -625,27 +650,34 @@ async function main(): Promise<RunOutcome> {
       console.log(`\n═══ Phase 3: Evaluator (round ${round}) ═══`);
       await updateIndex(ctx, `evaluating-r${round}`, `Evaluator round ${round}`);
       // hivekit runs the [auto] commands itself; no agent is asked to vouch for them.
-      let checksLine: Record<string, unknown> = {};
-      const checks = ctx.intent ? await runChecks(ctx.intent.successCriteria, { cwd: config.cwd, timeoutMs: checkTimeoutMs() }) : [];
+      const checks = ctx.intent && !ctx.checksNotRun ? await runChecks(ctx.intent.successCriteria, { cwd: config.cwd, timeoutMs: checkTimeoutMs() }) : [];
+      // Record the current round before the evaluator can throw, so a crash reports this round's checks.
+      lastChecks = checks;
+      checksRound = round;
       if (checks.length) {
         const failed = checks.filter(isFailedCheck);
         const checksFile = `checks-round-${round}.json`;
         await writeFile(join(ctx.runDir, checksFile), JSON.stringify(checks, null, 2) + "\n", "utf-8");
-        checksLine = {
+        // Ledger outlives the run: explicit projection, never command text or output (those stay in checks-round-N.json).
+        await appendLedger({
           ts: new Date().toISOString(), label: `checks-r${round}`, provider: "orchestrator", usd: 0,
-          ms: checks.reduce((n, c) => n + c.durationMs, 0), cwd: config.cwd, error: failed.length > 0,
-          runId: ctx.runId, phase: "checks", checks,
-        };
+          ms: checks.reduce((n, c) => n + c.durationMs, 0), cwd: config.cwd, runId: ctx.runId, phase: "checks",
+          error: checks.some((c) => c.spawnFailed), failedChecks: failed.length,
+          checks: checks.map(({ index, exitCode, timedOut, durationMs, bytesStdout, bytesStderr }) => ({
+            index, exitCode, timedOut, durationMs, bytesStdout, bytesStderr,
+          })),
+        });
         console.log(`[checks] ${checks.length} run by hivekit, ${failed.length} failed (${checksFile})`);
       }
       const gated = applyCheckGate(await runEvaluator(ctx, round, checks), checks);
       const evaluation = gated.evaluation;
       lastEvaluation = evaluation;
-      lastChecks = checks;
-      checksRound = round;
-      if (checks.length) {
-        if (gated.contradicted) console.log("[checks] evaluator said PASS but hivekit's checks failed — evaluator_contradicted_checks");
-        await appendLedger({ ...checksLine, ...(gated.contradicted && { contradiction: "evaluator_contradicted_checks" }) });
+      if (gated.contradicted) {
+        console.log("[checks] evaluator said PASS but hivekit's checks failed — evaluator_contradicted_checks");
+        await appendLedger({
+          ts: new Date().toISOString(), label: `checks-r${round}`, provider: "orchestrator", usd: 0, ms: 0,
+          runId: ctx.runId, phase: "checks", contradiction: "evaluator_contradicted_checks",
+        });
       }
       if (evaluation.status !== "errored") anyJudged = true;
 

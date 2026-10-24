@@ -113,6 +113,7 @@ export async function advise(checkpoint: Checkpoint, cwd: string, context: strin
       runId,
       phase: "advisor",
       cwd,
+      mode,
       allowedTools: toolsFor(mode, ["Read", "Glob", "Grep", "Bash"]),
       maxTurns: 15,
       prompt: `You are a silent advisor on a Planner -> Generator -> Evaluator run. ${ASKS[checkpoint]}
