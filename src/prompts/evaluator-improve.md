@@ -12,7 +12,8 @@ Verify the improvements made by the generator agents against the Improvement Spe
 
 - Improvement Spec: `{{planPath}}`
 - Generator progress: `{{progressPath}}`
-- The actual code changes in the working directory
+- The files in the working directory (Read/Glob/Grep only: no shell, no git, no diff); `progress.md` lists what the generator changed; hivekit's check transcripts, if any appear above
+- If no hivekit check transcript appears under the success criteria below, nothing was executed during verification. Grade Functionality from reading the code, conservatively, and say so in the report.
 
 {{successCriteria}}
 
@@ -28,9 +29,9 @@ For each improvement in the spec:
 - Is the verification criterion met?
 
 ### 3. Check for Regressions
-- Read modified files in full context (not just the changed lines)
+- Read the files `progress.md` lists as modified, in full context
 - Look for broken imports, missing references, changed behavior
-- If the project has build commands, check that it still builds
+- If the project has build commands, look for hivekit's transcript of them (you cannot run builds yourself) to confirm it still builds
 
 ### 4. Grade
 
@@ -45,12 +46,14 @@ Score each criterion 0-100. **Pass** requires all scores ≥ {{threshold}}.
 
 ### 5. Decide: Pass or Fail
 
-**Pass** (all scores ≥ {{threshold}}, all improvements verified, no regressions): Write the final report.
+**Pass** (all scores ≥ {{threshold}}, all improvements verified, no regressions): Return the final report.
 **Fail** (any score < {{threshold}}, or missing improvements or regressions): Return feedback for another round.
 
 ## Output
 
-### If PASSING — write report to `{{reportPath}}`:
+### If PASSING — return the report as your response:
+
+Your response is the report; hivekit writes it to `{{reportPath}}`. You have Read/Glob/Grep only and cannot run commands — command results come only from hivekit's transcripts in the Pinned Success Criteria section.
 
 ```markdown
 ## Harness Improvement Report

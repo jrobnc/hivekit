@@ -415,3 +415,66 @@ test("failedToReview is recorded and bannered only when non-empty", () => {
   assert.equal(clean.failedToReview, undefined);
   assert.doesNotMatch(renderVerdictBanner(clean), /FAILED-TO-REVIEW/);
 });
+
+// ── Orchestrator-run [auto] checks outrank the evaluator ────────────
+import { applyCheckGate, isFailedCheck } from "../dist/outcome.js";
+
+const PASS_EVAL = {
+  scores: [{ criterion: "Completion", score: 100 }],
+  status: "passed",
+  reason: "all_scores_above_threshold",
+  passed: true,
+  report: "EVALUATION: PASS\n- Completion: 100/100",
+};
+const chk = (over = {}) => ({
+  index: 1, text: "t", command: "c", exitCode: 0, timedOut: false, durationMs: 1, stdoutTail: "", stderrTail: "", ...over,
+});
+
+test("GATE: PASS text + perfect scorecard + failing check -> failed/auto_check_failed, contradicted", () => {
+  const { evaluation, contradicted } = applyCheckGate(PASS_EVAL, [chk({ exitCode: 3, stderrTail: "boom" })]);
+  assert.equal(evaluation.status, "failed");
+  assert.equal(evaluation.reason, "auto_check_failed");
+  assert.equal(evaluation.passed, false);
+  assert.equal(contradicted, true);
+  assert.match(evaluation.feedback, /boom/);
+});
+
+test("GATE: FAIL text with passing checks is unchanged (never upgrades)", () => {
+  const failed = { ...PASS_EVAL, status: "failed", reason: "explicit_fail_marker", passed: false, report: "EVALUATION: FAIL" };
+  const r = applyCheckGate(failed, [chk()]);
+  assert.equal(r.evaluation, failed);
+  assert.equal(r.contradicted, false);
+});
+
+test("GATE: PASS with all checks passing is the identity", () => {
+  assert.equal(applyCheckGate(PASS_EVAL, [chk()]).evaluation, PASS_EVAL);
+});
+
+test("GATE: a timed-out or killed check fails even with exit 0 / null", () => {
+  assert.equal(isFailedCheck(chk({ timedOut: true })), true);
+  assert.equal(isFailedCheck(chk({ exitCode: null })), true);
+  assert.equal(applyCheckGate(PASS_EVAL, [chk({ timedOut: true })]).evaluation.reason, "auto_check_failed");
+});
+
+test("GATE: an errored evaluation plus a failing check is failed/auto_check_failed", () => {
+  const errored = { ...PASS_EVAL, status: "errored", reason: "agent_error", passed: false, report: "" };
+  const r = applyCheckGate(errored, [chk({ exitCode: 1 })]);
+  assert.equal(r.evaluation.status, "failed");
+  assert.equal(r.contradicted, false);
+});
+
+test("buildRunResult throws for outcome passed with failed autoChecks", () => {
+  assert.throws(() =>
+    buildRunResult({
+      runId: "r", mode: "build", outcome: "passed", evaluatorStatus: "passed", evaluatorReason: "all_scores_above_threshold",
+      roundsRun: 1, maxRounds: 3, threshold: 80, reportPath: "x",
+      autoChecks: { total: 1, failed: [1], path: "checks-round-1.json" },
+    })
+  );
+});
+
+test("review banner says failed [auto] checks were reported, not enforced", () => {
+  const r = result("review_completed", { autoChecks: { total: 1, failed: [1], path: "checks-round-1.json" } });
+  const composed = composeReport("## Report\nbody\n", r);
+  assert.match(composed, /1 auto checks failed \(reported, not enforced in review mode\) — checks-round-1\.json/);
+});

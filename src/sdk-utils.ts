@@ -4,7 +4,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { turnCapMessage } from "./turns.js";
 import { trackAgent } from "./registry.js";
-import type { TurnPhase } from "./types.js";
+import type { Mode, TurnPhase } from "./types.js";
 import { getProvider } from "./providers/index.js";
 import type { Effort, Role, ProviderRunOutput } from "./providers/types.js";
 
@@ -57,6 +57,16 @@ export const TIERS = {
 /** Cost ledger. HIVEKIT_LEDGER points it elsewhere (the test suite uses a throwaway file). */
 export const LEDGER = process.env.HIVEKIT_LEDGER || join(homedir(), ".cache", "hivekit", "ledger.jsonl");
 
+/** Append one line to the cost ledger. Bookkeeping: an unwritable ~/.cache must never crash a run before result.json exists. */
+export async function appendLedger(entry: Record<string, unknown>): Promise<void> {
+  try {
+    await mkdir(dirname(LEDGER), { recursive: true });
+    await appendFile(LEDGER, JSON.stringify(entry) + "\n", "utf-8");
+  } catch (err) {
+    console.warn(`  [ledger] not written (${err instanceof Error ? err.message : err})`);
+  }
+}
+
 export interface AgentOptions {
   prompt: string;
   /** Which provider model tier to use; defaults to "build" */
@@ -69,6 +79,8 @@ export interface AgentOptions {
   cwd?: string;
   allowedTools?: string[];
   permissionMode?: string;
+  /** Run mode; review mode keeps the reviewed repo's settings/hooks out of the agent */
+  mode?: Mode;
   maxTurns?: number;
   /** Phase name; when set, a max-turns stop throws a named cap-hit error */
   phase?: TurnPhase | "advisor";
@@ -110,6 +122,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
       permissionMode: opts.permissionMode ?? "acceptEdits",
       maxTurns,
       maxBudgetUsd: positiveNumber(process.env.HIVEKIT_MAX_USD_PER_AGENT),
+      mode: opts.mode,
       onProgress: opts.onProgress,
     });
     thrown = out.thrown;
@@ -124,38 +137,28 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   const durationMs = out?.durationMs ?? 0;
   const totalCostUsd = out?.totalCostUsd ?? 0;
 
-  // The ledger is bookkeeping: an unwritable ~/.cache must never crash a run before result.json exists.
-  try {
-    await mkdir(dirname(LEDGER), { recursive: true });
-    await appendFile(
-      LEDGER,
-      JSON.stringify({
-        ts: new Date().toISOString(),
-        label: opts.label ?? "agent",
-        model,
-        provider: provider.name,
-        effort: opts.effort ?? null,
-        usd: totalCostUsd,
-        ms: durationMs,
-        cwd: opts.cwd,
-        maxTurns,
-        error: isError || thrown !== undefined,
-        runId: opts.runId ?? "",
-        phase: opts.phase ?? "",
-        turns: out?.turns ?? 0,
-        usage: {
-          input_tokens: out?.usage.input_tokens ?? 0,
-          output_tokens: out?.usage.output_tokens ?? 0,
-          cache_read_input_tokens: out?.usage.cache_read_input_tokens ?? 0,
-          cache_creation_input_tokens: out?.usage.cache_creation_input_tokens ?? 0,
-        },
-        lane: process.env.HIVEKIT_LANE ?? "",
-      }) + "\n",
-      "utf-8"
-    );
-  } catch (err) {
-    console.warn(`  [ledger] not written (${err instanceof Error ? err.message : err})`);
-  }
+  await appendLedger({
+    ts: new Date().toISOString(),
+    label: opts.label ?? "agent",
+    model,
+    provider: provider.name,
+    effort: opts.effort ?? null,
+    usd: totalCostUsd,
+    ms: durationMs,
+    cwd: opts.cwd,
+    maxTurns,
+    error: isError || thrown !== undefined,
+    runId: opts.runId ?? "",
+    phase: opts.phase ?? "",
+    turns: out?.turns ?? 0,
+    usage: {
+      input_tokens: out?.usage.input_tokens ?? 0,
+      output_tokens: out?.usage.output_tokens ?? 0,
+      cache_read_input_tokens: out?.usage.cache_read_input_tokens ?? 0,
+      cache_creation_input_tokens: out?.usage.cache_creation_input_tokens ?? 0,
+    },
+    lane: process.env.HIVEKIT_LANE ?? "",
+  });
 
   const thrownMsg = thrown === undefined ? undefined : (thrown as Error)?.message ?? String(thrown);
   const capHit = subtype === "error_max_turns" || /maximum number of turns/i.test(thrownMsg ?? (isError ? result : ""));

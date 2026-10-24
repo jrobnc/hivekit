@@ -50,13 +50,15 @@ customers or leadership unreviewed, irreversible production writes). Absent, the
 
 ```markdown
 ## Success Criteria
-- [auto] `npm test` passes with zero failures
-- [auto] `npm run build` completes with exit code 0
-- [auto] The `/api/users` endpoint returns 200 for a valid GET request
+- [auto] tests pass with zero failures: `npm test`
+- [auto] build exits 0: `npm run build`
+- [auto] The /api/users endpoint returns 200 for a valid GET request: `npm test -- users`
 - [judge] Error responses include a human-readable `message` field
 - [judge] No API key or secret appears in any committed file
 - [human] The login page renders correctly on mobile Safari
 ```
+
+An `[auto]` command goes at the END of the bullet as a trailing code span, or in a ```` ```check ```` block under it (a ```` ```sh ```` fence is ignored). hivekit runs it itself and waits for it to exit, so never background a server (`server &`) in a command; start and stop it inside the test.
 
 ### Bad (vague, uncheckable)
 
@@ -82,10 +84,10 @@ require a valid token.
 
 ## Success Criteria
 
-- [auto] `npm test` passes with zero failures
-- [auto] `POST /auth/login` returns a JWT for valid credentials
-- [auto] `GET /api/protected` returns 401 without a token
-- [auto] `GET /api/protected` returns 200 with a valid token
+- [auto] tests pass with zero failures: `npm test`
+- [auto] POST /auth/login returns a JWT for valid credentials: `npm test -- auth`
+- [auto] GET /api/protected returns 401 without a token: `npm test -- auth`
+- [auto] GET /api/protected returns 200 with a valid token: `npm test -- auth`
 - [judge] Tokens expire after 1 hour (check the `expiresIn` config)
 - [judge] Password hashing uses bcrypt with cost factor >= 10
 - [human] Login error messages do not reveal whether the email exists

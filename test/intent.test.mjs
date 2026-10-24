@@ -75,7 +75,7 @@ test("formatCriteriaForEvaluator renders criteria + human-gate routing", () => {
   assert.ok(out.includes("grade against THESE"));
   assert.ok(out.includes("[human]"));
   assert.ok(out.includes("PENDING HUMAN SIGN-OFF"));
-  assert.ok(out.includes("1. [auto]"));
+  assert.ok(out.includes("1. [auto")); // "[auto (unverified)]" when there is no command
 });
 
 test("toIntentYaml emits structured objective + tiered criteria + constraints", () => {
@@ -107,4 +107,123 @@ test("toIntentYaml escapes quotes/backslashes in criterion text (valid YAML scal
 test("toIntentYaml renders empty criteria as a flow-empty list", () => {
   const yaml = toIntentYaml({ raw: "", objective: "x", successCriteria: [] });
   assert.ok(yaml.includes("success_criteria: []"));
+});
+
+// ── [auto] executable checks ─────────────────────────────────────────
+import { parseIntent, loadIntent } from "../dist/intent.js";
+
+const doc = (body) => `## Success Criteria\n${body}\n`;
+
+test("backtick form sets command and strips it from text", (t) => {
+  t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [auto] tests pass: `npm test`")).successCriteria;
+  assert.deepEqual(c, [{ tier: "auto", text: "tests pass", command: "npm test" }]);
+});
+
+test("fenced check block holds a multi-line command; text excludes the fence", (t) => {
+  t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [auto] full suite passes\n  ```check\n  npm ci\n  npm test\n  ```\n- [human] next")).successCriteria;
+  assert.equal(c[0].command, "npm ci\nnpm test");
+  assert.equal(c[0].text, "full suite passes");
+  assert.equal(c.length, 2);
+});
+
+test("[auto] without a command is unverified: no command key, one WARN", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [auto] it works")).successCriteria;
+  assert.deepEqual(c, [{ tier: "auto", text: "it works" }]);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[0], /auto \(unverified\)/);
+});
+
+test("check fence under [judge] is ignored with one WARN", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [judge] looks calm\n  ```check\n  echo hi\n  ```")).successCriteria;
+  assert.deepEqual(c, [{ tier: "judge", text: "looks calm" }]);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[0], /ignored/);
+});
+
+test("unterminated check fence fails closed to unverified", (t) => {
+  t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [auto] x\n  ```check\n  rm -rf /")).successCriteria;
+  assert.deepEqual(c, [{ tier: "auto", text: "x" }]);
+});
+
+test("unterminated check fence shields nothing: later bullets (and their commands) still parse", (t) => {
+  t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [auto] a\n  ```check\n  echo a\n- [human] owner signs off\n- [auto] b: `true`")).successCriteria;
+  assert.deepEqual(c, [
+    { tier: "auto", text: "a" },
+    { tier: "human", text: "owner signs off" },
+    { tier: "auto", text: "b", command: "true" },
+  ]);
+});
+
+test("unterminated top-level fence warns and shields nothing", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("```md\n- [human] y\n- [auto] z: `true`")).successCriteria;
+  assert.deepEqual(c, [{ tier: "human", text: "y" }, { tier: "auto", text: "z", command: "true" }]);
+  assert.match(warn.mock.calls[0].arguments[0], /unterminated fence/);
+});
+
+test("check fence with a CommonMark info string parses; closing fence is not an opener", (t) => {
+  t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [auto] x\n  ```check title\n  echo hi\n  ```\n- [human] y\n```sh title=\"x\"\n- [auto] fake\n```\n- [human] z")).successCriteria;
+  assert.deepEqual(c, [
+    { tier: "auto", text: "x", command: "echo hi" },
+    { tier: "human", text: "y" },
+    { tier: "human", text: "z" },
+  ]);
+});
+
+test("continuation lines join; fenced bullets are not criteria", (t) => {
+  t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [auto] suite passes\n  on CI: `npm test`\n```md\n- [auto] fake\n```\n- [human] ok")).successCriteria;
+  assert.deepEqual(c, [
+    { tier: "auto", text: "suite passes on CI", command: "npm test" },
+    { tier: "human", text: "ok" },
+  ]);
+});
+
+test("toIntentYaml emits command; loadIntent is exported", (t) => {
+  t.mock.method(console, "warn", () => {});
+  assert.match(toIntentYaml(parseIntent(doc("- [auto] a: `x`"))), /command: "x"/);
+  assert.equal(typeof loadIntent, "function");
+});
+
+test("formatCriteriaForEvaluator hands over hivekit's transcript as the only evidence", (t) => {
+  t.mock.method(console, "warn", () => {});
+  const intent = parseIntent(doc("- [auto] fails: `exit 3`"));
+  const out = formatCriteriaForEvaluator(intent, [
+    { index: 1, text: "fails", command: "exit 3", exitCode: 3, timedOut: false, durationMs: 5, stdoutTail: "a ``` b", stderrTail: "" },
+  ]);
+  assert.match(out, /exit 3/);
+  assert.match(out, /only admissible evidence/i);
+  assert.ok(out.includes("````\na ``` b\n````"), "fence outgrows backticks in the output");
+  assert.match(formatCriteriaForEvaluator(intent), /NO TRANSCRIPT/);
+});
+
+test("a non-check fence under [auto] gives exactly one WARN naming the tag", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const c = parseIntent(doc("- [auto] suite passes\n  ```sh\n  npm test\n  ```")).successCriteria;
+  assert.equal(c[0].command, undefined);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[0], /fence tagged `sh` under criterion 1 ignored; tag it `check`/);
+});
+
+test("an untagged fence under [auto] gives one WARN", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  parseIntent(doc("- [auto] suite passes\n  ```\n  npm test\n  ```"));
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[0], /untagged fence under criterion 1 ignored; tag it `check`/);
+});
+
+test("examples/hello-hive/HIVE.md: every [auto] criterion has a command", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const intent = await loadIntent(new URL("../examples/hello-hive/HIVE.md", import.meta.url).pathname);
+  const autos = intent.successCriteria.filter((c) => c.tier === "auto");
+  assert.equal(autos.length, 2);
+  for (const c of autos) assert.ok(c.command, c.text);
+  assert.equal(warn.mock.callCount(), 0);
 });

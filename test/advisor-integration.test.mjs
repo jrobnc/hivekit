@@ -73,6 +73,7 @@ mock.module("../dist/evaluator.js", {
 mock.module("../dist/sdk-utils.js", {
   namedExports: {
     runAgent: async () => "stubbed",
+    appendLedger: async () => {},
     TIERS: {
       plan: { role: "plan", effort: "high" },
       build: { role: "build", effort: "medium" },

@@ -22,6 +22,8 @@ import type {
   RunResult,
   CriterionScore,
   TurnLimits,
+  CheckResult,
+  EvaluationResult,
 } from "./types.js";
 import { describeTurnLimits } from "./turns.js";
 
@@ -138,6 +140,70 @@ export function decideOutcome(input: OutcomeInput): RunOutcome {
   return terminalStatus === "errored" ? "errored" : "failed";
 }
 
+/**
+ * True when the response makes its OWN acceptance assertion.
+ *
+ * Required shape: `EVALUATION: PASS` as the FIRST non-blank line of the
+ * response. Not "somewhere in the text", not "at column 0 somewhere" — first.
+ *
+ * Every weaker rule fell to a quoting idiom, because the evaluator prompt must
+ * itself contain the string `EVALUATION: PASS` in order to ask for it:
+ *   - a substring test passed on "I cannot produce the required
+ *     `EVALUATION: PASS` line";
+ *   - a column-0 + not-inside-a-fence test passed on a quoted block whose own
+ *     content held a nested ``` marker, which inverted the fence-state toggle;
+ *     and the same toggle silently BLANKED a legitimate assertion whenever an
+ *     unbalanced fence marker (a quoted diff, a log line) appeared earlier.
+ *
+ * Position is the one property a quotation cannot forge: a response that is
+ * explaining, hedging or declining cannot have the verdict as its opening line,
+ * and a response whose opening line IS the verdict is asserting it under any
+ * reading. No markdown parsing, so nothing to spoof and nothing to unbalance.
+ *
+ * The FAIL check stays unanchored and matches anywhere: be liberal about what
+ * counts as a rejection, strict about what counts as an acceptance.
+ */
+export function hasPassAssertion(text: string): boolean {
+  const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0);
+  return firstLine !== undefined && /^EVALUATION:[^\S\r\n]*PASS(?:ED)?\b/i.test(firstLine);
+}
+
+/** A check fails on a non-zero exit, a kill (null), or a timeout. */
+export function isFailedCheck(c: CheckResult): boolean {
+  return c.exitCode !== 0 || c.timedOut;
+}
+
+/**
+ * Orchestrator-run [auto] checks outrank the evaluator.
+ * hivekit ran these commands itself; the evaluator only read about them. If any failed, the round is
+ * `failed` / `auto_check_failed` — whatever the evaluator wrote, including a PASS first line and a
+ * perfect scorecard. The gate can only lower a verdict, never raise one.
+ */
+export function applyCheckGate(
+  evaluation: EvaluationResult,
+  checks: CheckResult[]
+): { evaluation: EvaluationResult; contradicted: boolean } {
+  const failed = checks.filter(isFailedCheck);
+  if (failed.length === 0) return { evaluation, contradicted: false };
+  const detail = failed
+    .map((c) => {
+      const how = c.timedOut ? "timed out" : c.exitCode === null ? "did not run to completion" : `exit ${c.exitCode}`;
+      const err = c.stderrTail.split(/\r?\n/).slice(-20).join("\n").trim();
+      return `- [auto] criterion ${c.index} "${c.text}": \`${c.command}\` ${how}${err ? `\n${err}` : ""}`;
+    })
+    .join("\n");
+  return {
+    contradicted: hasPassAssertion(evaluation.report),
+    evaluation: {
+      ...evaluation,
+      status: "failed",
+      reason: "auto_check_failed",
+      passed: false,
+      feedback: `hivekit ran these [auto] checks itself and they FAILED:\n${detail}`,
+    },
+  };
+}
+
 export interface ResultInput {
   runId: string;
   mode: Mode;
@@ -152,6 +218,8 @@ export interface ResultInput {
   error?: string;
   turnLimits?: TurnLimits;
   failedToReview?: { dimension: string; error: string }[];
+  autoChecks?: RunResult["autoChecks"];
+  autoChecksNotRun?: RunResult["autoChecksNotRun"];
   timestamp?: string;
 }
 
@@ -178,6 +246,8 @@ export function buildRunResult(input: ResultInput): RunResult {
     timestamp: input.timestamp ?? new Date().toISOString(),
   };
   if (input.error !== undefined) result.error = input.error;
+  if (input.autoChecks) result.autoChecks = input.autoChecks;
+  if (input.autoChecksNotRun) result.autoChecksNotRun = input.autoChecksNotRun;
   if (input.turnLimits !== undefined) result.turnLimits = input.turnLimits;
   if (input.failedToReview?.length) {
     result.failedToReview = input.failedToReview;
@@ -198,6 +268,9 @@ export function buildRunResult(input: ResultInput): RunResult {
     throw new Error(
       `buildRunResult: outcome "passed" requires an evaluator PASS, got "${input.evaluatorStatus ?? "none"}"`
     );
+  }
+  if (input.outcome === "passed" && input.autoChecks?.failed.length) {
+    throw new Error(`buildRunResult: outcome "passed" with failed [auto] checks (${input.autoChecks.failed.join(",")})`);
   }
   if (
     input.outcome === "review_completed" &&
@@ -242,6 +315,17 @@ export function renderVerdictBanner(result: RunResult): string {
   // stripVerdictBanner's block-size cap, orphaning its own open marker.
   if (result.error) {
     lines.push(`- **Error:** ${result.error.replace(/\s*[\r\n]+\s*/g, " ⏎ ").slice(0, 500)}`);
+  }
+  if (result.autoChecks) {
+    const n = result.autoChecks.failed.length;
+    lines.push(
+      result.mode === "review" && n
+        ? `- **[auto] checks:** ${n} auto checks failed (reported, not enforced in review mode) — ${result.autoChecks.path}`
+        : `- **[auto] checks:** ${result.autoChecks.total} run by hivekit itself (not by an agent), ${n} failed — ${result.autoChecks.path}`
+    );
+  }
+  if (result.autoChecksNotRun) {
+    lines.push(`- **[auto] checks:** not run — ${result.autoChecksNotRun.reason} (criteria ${result.autoChecksNotRun.criteria.join(", ")})`);
   }
   if (result.failedToReview?.length) {
     const dims = result.failedToReview.map((d) => `${d.dimension} (${d.error})`).join("; ");

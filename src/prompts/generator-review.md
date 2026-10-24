@@ -27,7 +27,7 @@ dimension where they apply.
 
 ## Output
 
-Write your findings to `{{findingsPath}}` as JSON:
+Return the findings JSON as your final response; hivekit saves it to `{{findingsPath}}`. Shape:
 
 ```json
 {

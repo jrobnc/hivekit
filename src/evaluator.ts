@@ -4,7 +4,9 @@ import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
 import { resolveTurnLimits } from "./turns.js";
 import { formatCriteriaForEvaluator } from "./intent.js";
-import type { RunContext, EvaluationResult, Mode, CriterionScore } from "./types.js";
+import { hasPassAssertion } from "./outcome.js";
+import { READ_ONLY_TOOLS } from "./trust.js";
+import type { RunContext, EvaluationResult, Mode, CriterionScore, CheckResult } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -229,34 +231,6 @@ export function parseEvaluation(
   };
 }
 
-/**
- * True when the response makes its OWN acceptance assertion.
- *
- * Required shape: `EVALUATION: PASS` as the FIRST non-blank line of the
- * response. Not "somewhere in the text", not "at column 0 somewhere" — first.
- *
- * Every weaker rule fell to a quoting idiom, because the evaluator prompt must
- * itself contain the string `EVALUATION: PASS` in order to ask for it:
- *   - a substring test passed on "I cannot produce the required
- *     `EVALUATION: PASS` line";
- *   - a column-0 + not-inside-a-fence test passed on a quoted block whose own
- *     content held a nested ``` marker, which inverted the fence-state toggle;
- *     and the same toggle silently BLANKED a legitimate assertion whenever an
- *     unbalanced fence marker (a quoted diff, a log line) appeared earlier.
- *
- * Position is the one property a quotation cannot forge: a response that is
- * explaining, hedging or declining cannot have the verdict as its opening line,
- * and a response whose opening line IS the verdict is asserting it under any
- * reading. No markdown parsing, so nothing to spoof and nothing to unbalance.
- *
- * The FAIL check stays unanchored and matches anywhere: be liberal about what
- * counts as a rejection, strict about what counts as an acceptance.
- */
-export function hasPassAssertion(text: string): boolean {
-  const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0);
-  return firstLine !== undefined && /^EVALUATION:[^\S\r\n]*PASS(?:ED)?\b/i.test(firstLine);
-}
-
 /** Negative qualifiers that must NOT be aliased away — they are the evaluator flagging partial work. */
 const DISCLAIMING_QUALIFIER = /\b(not|no|un|skip|skipped|unverified|partial|todo|fail|failed|pending|assumed)\b/i;
 
@@ -290,7 +264,8 @@ function isAggregateLabel(criterion: string): boolean {
 /** Runs the evaluator agent. Reads plan from {runDir}/plan.md and findings from {runDir}/findings/ on disk. */
 export async function runEvaluator(
   ctx: RunContext,
-  round: number
+  round: number,
+  checks: CheckResult[] = []
 ): Promise<EvaluationResult> {
   const { config, runId, runDir } = ctx;
   const planPath = join(runDir, "plan.md");
@@ -314,7 +289,7 @@ export async function runEvaluator(
     findingsDir,
     progressPath,
     principles: await loadPrinciples(),
-    successCriteria: formatCriteriaForEvaluator(ctx.intent),
+    successCriteria: formatCriteriaForEvaluator(ctx.intent, checks, ctx.checksNotRun),
   });
 
   console.log(
@@ -326,7 +301,9 @@ export async function runEvaluator(
     ...TIERS.evaluate,
     label: `evaluator-r${round}`,
     cwd: config.cwd,
-    allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
+    mode: config.mode,
+    // Read-only in EVERY mode: command results come from hivekit's own transcripts, and hivekit saves the report.
+    allowedTools: [...READ_ONLY_TOOLS],
     permissionMode: "acceptEdits",
     maxTurns: resolveTurnLimits(config).evaluator,
     phase: "evaluator",
@@ -342,23 +319,11 @@ export async function runEvaluator(
     criteriaPolicyFor(config.mode)
   );
 
+  // The evaluator is read-only, so any report.md on disk is not this round's: always
+  // overwrite it with this round's response so a stale file can never be reported.
+  await writeFile(reportPath, resultText, "utf-8");
   if (evaluation.passed) {
-    // Ensure report was written to disk AND has content (agents sometimes
-    // call Write with an empty string, leaving a 0-byte file that passes
-    // a naive existence check).
-    let needsFallback = false;
-    try {
-      const existing = await readFile(reportPath, "utf-8");
-      needsFallback = existing.trim().length === 0;
-    } catch {
-      needsFallback = true;
-    }
-    if (needsFallback) {
-      await writeFile(reportPath, resultText, "utf-8");
-      console.log("[evaluator] PASSED — wrote report to", reportPath);
-    } else {
-      console.log("[evaluator] PASSED — report at", reportPath);
-    }
+    console.log("[evaluator] PASSED — wrote report to", reportPath);
   } else {
     console.log(`[evaluator] FAILED (round ${round})`);
     if (evaluation.scores.length > 0) {
