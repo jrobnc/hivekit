@@ -2,6 +2,8 @@ import { readFile, appendFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { runAgent, TIERS, LEDGER, positiveNumber } from "./sdk-utils.js";
+import { toolsFor } from "./trust.js";
+import type { Mode } from "./types.js";
 
 // ── Jev: cheap yes/no forks ─────────────────────────────────────────
 // TypeSafe System One answers structured questions in well under a second at
@@ -102,7 +104,7 @@ export interface Advice {
   note: string;
 }
 
-export async function advise(checkpoint: Checkpoint, cwd: string, context: string, runId: string, escalate = false): Promise<Advice> {
+export async function advise(checkpoint: Checkpoint, cwd: string, context: string, runId: string, escalate = false, mode: Mode = "build"): Promise<Advice> {
   if (process.env.HIVEKIT_ADVISOR === "0") return { ok: true, note: "advisor off" };
   try {
     const { result } = await runAgent({
@@ -111,7 +113,7 @@ export async function advise(checkpoint: Checkpoint, cwd: string, context: strin
       runId,
       phase: "advisor",
       cwd,
-      allowedTools: ["Read", "Glob", "Grep", "Bash"],
+      allowedTools: toolsFor(mode, ["Read", "Glob", "Grep", "Bash"]),
       maxTurns: 15,
       prompt: `You are a silent advisor on a Planner -> Generator -> Evaluator run. ${ASKS[checkpoint]}
 

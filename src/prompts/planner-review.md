@@ -16,12 +16,12 @@ complexity, speculative abstraction, and oversized changes as reviewable problem
 
 1. Explore the codebase structure — files, architecture, tech stack, dependencies
 2. Read any CLAUDE.md files for project conventions
-3. Check recent git history (`git log --oneline -20`) for context on active development
+3. (Only if Bash is available) Check recent git history (`git log --oneline -20`) for context on active development
 4. Identify the most important areas to review based on the focus and depth
 
 ## Output
 
-Write a **Review Spec** to `{{planPath}}` containing:
+Return the **Review Spec** as your final response — you have read-only tools; hivekit saves it to `{{planPath}}`. It must contain:
 
 ### Scope
 What areas/modules will be reviewed. Be specific about file paths and boundaries.

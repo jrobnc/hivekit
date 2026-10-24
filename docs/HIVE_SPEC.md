@@ -123,10 +123,11 @@ it is **"what is the verifier, and how much do we trust it."** Three tiers:
    human-set, not Planner-invented. (Today the Planner invents the criteria it is later graded
    on; `HIVE.md` removes that conflict of interest.)
 3. **Route by tier:**
-   - `[auto]` → the Evaluator runs the actual check (executes the test/command) and gates on
-     the real result, not its impression.
-   - `[judge]` → the Evaluator scores the criterion against the rubric; for high-stakes
-     criteria, scale to an independent panel / adversarial verify.
+   - `[auto]` → the orchestrator runs the command itself (a trailing `cmd` code span on the
+     bullet, or a ```check block under it) and hands the Evaluator the transcript as the only admissible evidence; a failed
+     check fails the round in code. An `[auto]` with no command is `auto (unverified)`.
+   - `[judge]` → the Evaluator scores the criterion against the rubric; single evaluator
+     today; an independent panel for high-stakes criteria is planned.
    - `[human]` → the Evaluator marks **pending human sign-off** and the run terminates at that
      gate without declaring success.
 4. **Restraint is implicit.** The Ponytail `Restraint` criterion (from `principles.md`) always

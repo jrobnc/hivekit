@@ -57,12 +57,14 @@ Score each criterion (0-100):
 
 ### 4. Decide: Pass or Fail
 
-**Pass** (all scores ≥ {{threshold}}): Write the final report.
+**Pass** (all scores ≥ {{threshold}}): Return the final report.
 **Fail** (any score < {{threshold}}): Write specific, actionable feedback for the generator.
 
 ## Output
 
-### If PASSING — write report to `{{reportPath}}`:
+### If PASSING — return the report as your response:
+
+Your response is the report; hivekit writes it to `{{reportPath}}`. You have Read/Glob/Grep only and cannot run commands — command results come only from hivekit's transcripts in the Pinned Success Criteria section.
 
 ```markdown
 ## Harness Build Report: [Feature Name]

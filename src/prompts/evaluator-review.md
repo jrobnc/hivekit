@@ -45,7 +45,7 @@ Rank findings by (severity × confidence). Keep only actionable items — vague 
 
 ### 5. Produce the Report
 
-Write the final report to `{{reportPath}}`:
+Your response is the report; hivekit writes it to `{{reportPath}}`. You have Read/Glob/Grep only and cannot run commands — command results come only from hivekit's transcripts in the Pinned Success Criteria section. Return the report in this shape:
 
 ```markdown
 ## Harness Review: [Project Name]

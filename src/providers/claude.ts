@@ -23,6 +23,10 @@ export const claudeProvider: Provider = {
       model: input.model,
       cwd: input.cwd,
       allowedTools: input.allowedTools,
+      // allowedTools only AUTO-APPROVES; `tools` is what removes a tool from the model's context.
+      // An agent with no Write in its list is meant to be read-only (evaluator, advisor, every review agent):
+      // make its list the hard set. Writers keep the SDK default set, so build/improve generators are unchanged.
+      tools: input.allowedTools.includes("Write") ? undefined : input.allowedTools,
       permissionMode: input.permissionMode as PermissionMode,
       maxTurns: input.maxTurns,
       effort: input.effort,

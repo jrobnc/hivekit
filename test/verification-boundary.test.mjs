@@ -70,7 +70,8 @@ function makeWorkspace() {
 /**
  * Build the fake-SDK script for `rounds` generate/evaluate cycles.
  * Each round: 1 improve agent (writes progress-N.md), then the evaluator
- * (writes the lying report.md, returns `evalResult`).
+ * (writes a lying report.md, returns `evalResult`). The evaluator is read-only, so
+ * hivekit overwrites that file with `evalResult`: the on-disk lie is a stale file.
  */
 function scriptFor(rounds, evalResult) {
   const calls = [];
@@ -195,7 +196,7 @@ test("REGRESSION: FAILED x3 -> max rounds -> non-zero exit -> result FAILED", ()
 
 test("ADVERSARIAL: an agent report saying 'Result: PASS' cannot override the state machine", () => {
   const ws = makeWorkspace();
-  const run = runCli(ws, scriptFor(3, FAILING_EVAL));
+  const run = runCli(ws, scriptFor(3, `${FAILING_EVAL}\n${LYING_REPORT}`));
   const art = runArtifacts(ws);
 
   // The agent wrote a report literally containing "**Result**: PASS" three
@@ -587,7 +588,7 @@ test("genuine quoted code in a failed run's report is preserved verbatim", () =>
   const script = {
     calls: [
       { writePathPattern: "progress-\\d+\\.md", content: "- work\n", result: "gen done" },
-      { writePathPattern: "report\\.md", content: withCode, result: FAILING_EVAL },
+      { writePathPattern: "report\\.md", content: "stale", result: `${FAILING_EVAL}\n${withCode}` },
     ],
   };
   script.calls = [...script.calls, ...script.calls, ...script.calls];
@@ -600,4 +601,38 @@ test("genuine quoted code in a failed run's report is preserved verbatim", () =>
   // The finding keeps its meaning: annotating this as a suppressed success
   // claim would invert it.
   assert.match(art.report, /Outcome: complete failure of the auth path/);
+  // A report.md left on disk is never this round's (the evaluator is read-only): it is replaced.
+  assert.doesNotMatch(art.report, /^stale$/m);
+});
+
+// ── Orchestrator-run [auto] checks outrank a lying evaluator ─────────
+
+test("E2E: a failing [auto] command fails the run even when the evaluator says PASS", () => {
+  const ws = makeWorkspace();
+  const intent = join(ws.dir, "HIVE.md");
+  writeFileSync(intent, "## Objective\nDo it.\n\n## Success Criteria\n- [auto] fails: `exit 3`\n", "utf-8");
+  const BUILD_PASS = `EVALUATION: PASS
+- Feature Completeness: 100/100
+- Code Quality: 100/100
+- Design Quality: 100/100
+- Functionality: 100/100
+- Restraint: 100/100`;
+  const calls = [];
+  for (let i = 0; i < 3; i++) {
+    calls.push({ result: "generator done" });
+    calls.push({ when: "Pinned Success Criteria", writePathPattern: "report\\.md", content: LYING_REPORT, result: BUILD_PASS });
+  }
+  const run = runCli(ws, { calls }, ["--intent", intent], { argv: ["--mode", "build"] });
+  assert.notEqual(run.code, 0);
+  const art = runArtifacts(ws);
+  assert.equal(art.result.ok, false);
+  assert.equal(art.result.evaluator.reason, "auto_check_failed");
+  assert.deepEqual(art.result.autoChecks.failed, [1]);
+  assert.ok(readFileSync(join(art.runDir, "checks-round-1.json"), "utf-8").includes('"exitCode": 3'));
+  assert.match(art.report, /\*\*\[auto\] checks:\*\*/);
+  assert.match(run.stdout, /evaluator_contradicted_checks/);
+  if (process.env.HIVEKIT_LEDGER) {
+    const ledger = readFileSync(process.env.HIVEKIT_LEDGER, "utf-8");
+    assert.ok(ledger.split("\n").some((l) => l.includes('"phase":"checks"') && l.includes('"contradiction":"evaluator_contradicted_checks"') && l.includes(art.result.runId)));
+  }
 });

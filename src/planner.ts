@@ -1,8 +1,9 @@
-import { readFile } from "fs/promises";
+import { readFile, writeFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
 import { resolveTurnLimits } from "./turns.js";
+import { toolsFor } from "./trust.js";
 import type { RunContext, PlannerOutput } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -31,7 +32,7 @@ export async function runPlanner(ctx: RunContext): Promise<PlannerOutput> {
     label: "planner",
     runId,
     cwd: config.cwd,
-    allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
+    allowedTools: toolsFor(config.mode, ["Read", "Glob", "Grep", "Bash", "Write"]),
     permissionMode: "acceptEdits" as const,
     maxTurns: limits.planner,
     phase: "planner" as const,
@@ -40,7 +41,7 @@ export async function runPlanner(ctx: RunContext): Promise<PlannerOutput> {
   };
 
   console.log(`[planner] Starting ${config.mode} planning...`);
-  const { durationMs: firstDuration } = await runAgent({ prompt, ...agentOpts });
+  const { durationMs: firstDuration, result: firstResult } = await runAgent({ prompt, ...agentOpts });
   console.log(`\n[planner] First attempt done (${Math.round(firstDuration / 1000)}s)`);
 
   let planContent: string | undefined;
@@ -49,6 +50,12 @@ export async function runPlanner(ctx: RunContext): Promise<PlannerOutput> {
     if (raw.trim().length > 0) planContent = raw;
   } catch {
     // plan.md not written — will retry
+  }
+
+  // Review agents are read-only and cannot write plan.md: the orchestrator saves the spec they return.
+  if (!planContent && config.mode === "review" && firstResult?.trim()) {
+    await writeFile(planPath, firstResult, "utf-8");
+    planContent = firstResult;
   }
 
   if (!planContent) {

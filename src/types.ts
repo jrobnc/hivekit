@@ -17,6 +17,21 @@ export type VerifierTier = "auto" | "judge" | "human";
 export interface Criterion {
   tier: VerifierTier;
   text: string;
+  /** Shell command hivekit itself runs for an `[auto]` criterion. Absent = `auto (unverified)`. */
+  command?: string;
+}
+/** Transcript of one `[auto]` command hivekit ran itself (see src/trust.ts). */
+export interface CheckResult {
+  /** 1-based position in intent.successCriteria — the number the evaluator sees. */
+  index: number;
+  text: string;
+  command: string;
+  /** null when the process was killed or never spawned. */
+  exitCode: number | null;
+  timedOut: boolean;
+  durationMs: number;
+  stdoutTail: string;
+  stderrTail: string;
 }
 export interface IntentDoc {
   raw: string;
@@ -104,7 +119,8 @@ export type EvaluationReason =
   | "missing_criteria"
   | "no_pass_assertion"
   | "malformed_scores"
-  | "agent_error";
+  | "agent_error"
+  | "auto_check_failed";
 
 export interface EvaluationResult {
   scores: CriterionScore[];
@@ -157,6 +173,8 @@ export interface RunResult {
   reportPath: string;
   /** Turn limits in force for this run. */
   turnLimits?: TurnLimits;
+  /** [auto] commands hivekit ran itself (not an agent). Present only when any ran. */
+  autoChecks?: { total: number; failed: number[]; path: string };
   /** Populated only when outcome === "crashed". */
   error?: string;
   timestamp: string;

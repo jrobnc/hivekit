@@ -1,9 +1,11 @@
 import { readFile, mkdir, writeFile, rm } from "fs/promises";
+import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { runAgent, fillTemplate, loadPrinciples, TIERS } from "./sdk-utils.js";
 import type { Tier } from "./sdk-utils.js";
 import { resolveTurnLimits } from "./turns.js";
+import { toolsFor } from "./trust.js";
 import { agentBudget } from "./registry.js";
 import { treeFingerprint } from "./paths.js";
 import type {
@@ -57,6 +59,17 @@ function logBudget(): number {
   return budget;
 }
 
+/** Whole text → first ```json fence → first `{` … last `}`; undefined when nothing parses. */
+function extractJson(text: string): string | undefined {
+  const t = (text ?? "").trim();
+  const fence = t.match(/```json\s*([\s\S]*?)```/i)?.[1];
+  const braces = t.indexOf("{") >= 0 && t.lastIndexOf("}") > t.indexOf("{") ? t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1) : undefined;
+  return [t, fence, braces].find((c) => {
+    if (!c) return false;
+    try { JSON.parse(c); return true; } catch { return false; }
+  });
+}
+
 async function runReviewGenerators(
   ctx: RunContext,
   template: string
@@ -87,24 +100,31 @@ async function runReviewGenerators(
 
     console.log(`  [${dim}] started`);
 
+    let returned = "";
     try {
-      await runAgent({
+      const out = await runAgent({
         prompt,
         ...TIERS.review,
         label: `review-${dim}`,
         cwd: config.cwd,
-        allowedTools: ["Read", "Glob", "Grep", "Bash", "Write"],
+        allowedTools: toolsFor("review", ["Read", "Glob", "Grep", "Bash", "Write"]),
         permissionMode: "acceptEdits",
         maxTurns: resolveTurnLimits(config).review,
         phase: "review",
         runId,
       });
+      returned = out.result;
       console.log(`  [${dim}] complete`);
     } catch (err) {
       console.error(
         `  [${dim}] ERROR: ${err instanceof Error ? err.message : err}`
       );
     }
+
+    // Read-only agents return the findings JSON instead of writing it; the orchestrator saves it. Unparseable
+    // text still lands in readFindings as FAILED-TO-REVIEW (fail closed).
+    const json = existsSync(findingsPath) ? undefined : extractJson(returned);
+    if (json) await writeFile(findingsPath, json, "utf-8");
 
     const result = await readFindings(findingsPath, dim, runId);
     if (result.error) console.error(`  [${dim}] FAILED-TO-REVIEW: ${result.error}`);

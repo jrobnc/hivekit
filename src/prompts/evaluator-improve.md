@@ -30,7 +30,7 @@ For each improvement in the spec:
 ### 3. Check for Regressions
 - Read modified files in full context (not just the changed lines)
 - Look for broken imports, missing references, changed behavior
-- If the project has build commands, check that it still builds
+- If the project has build commands, look for hivekit's transcript of them (you cannot run builds yourself) to confirm it still builds
 
 ### 4. Grade
 
@@ -45,12 +45,14 @@ Score each criterion 0-100. **Pass** requires all scores ≥ {{threshold}}.
 
 ### 5. Decide: Pass or Fail
 
-**Pass** (all scores ≥ {{threshold}}, all improvements verified, no regressions): Write the final report.
+**Pass** (all scores ≥ {{threshold}}, all improvements verified, no regressions): Return the final report.
 **Fail** (any score < {{threshold}}, or missing improvements or regressions): Return feedback for another round.
 
 ## Output
 
-### If PASSING — write report to `{{reportPath}}`:
+### If PASSING — return the report as your response:
+
+Your response is the report; hivekit writes it to `{{reportPath}}`. You have Read/Glob/Grep only and cannot run commands — command results come only from hivekit's transcripts in the Pinned Success Criteria section.
 
 ```markdown
 ## Harness Improvement Report
