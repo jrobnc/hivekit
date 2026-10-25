@@ -161,7 +161,10 @@ export function checkAdmission(
         `Wait for it to finish, raise HIVEKIT_MAX_RUNS, or set HIVE_ADMIT=1 to bypass.`,
     };
   }
-  if (pressure !== undefined && pressure >= 2) {
+  // Refuse only at critical (level 4). "warning" is the compressor filling, which is normal on a Mac with
+  // many sessions open; at warning a run is still admitted but agentBudget() drops it to one agent per phase.
+  // The hive-stats memguard daemon handles genuine exhaustion by pausing the biggest session.
+  if (pressure !== undefined && pressure >= 4) {
     return {
       ok: false,
       message: `[hivekit] REFUSED: macOS memory pressure is ${pressureLabel(pressure)}. Close sessions and retry, or set HIVE_ADMIT=1 to bypass.`,

@@ -82,7 +82,8 @@ test("checkAdmission: max runs", () => {
 });
 
 test("checkAdmission: memory pressure", () => {
-  assert.match(checkAdmission([], 2, {}).message, /warning \(level 2\)/);
+  assert.equal(checkAdmission([], 2, {}).ok, true, "warning is admitted (agent budget drops to 1 instead)");
+  assert.match(checkAdmission([], 4, {}).message, /critical \(level 4\)/);
   assert.match(checkAdmission([], 4, {}).message, /critical/);
   assert.equal(checkAdmission([], 1, {}).ok, true);
   assert.equal(checkAdmission([], undefined, {}).ok, true);
