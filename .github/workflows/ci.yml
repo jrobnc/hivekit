@@ -1,15 +1,17 @@
 name: CI
 
+# One job per PR: hivekit runs its own [auto] checks and hive-control runs `npm test` in the task worktree
+# before a PR exists, so merged commits are not re-tested on push. actionlint lives in actionlint.yml and
+# runs only when a workflow file changes.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -32,11 +34,3 @@ jobs:
           npm test 2>&1 | tee test.log
           grep -Eq '^(ℹ|#) skipped 0$' test.log || { echo "::error::tests were skipped (or summary missing)"; exit 1; }
           grep -Eq '^(ℹ|#) todo 0$' test.log || { echo "::error::tests marked todo (or summary missing)"; exit 1; }
-
-  actionlint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - run: bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
-      - run: ./actionlint -color
