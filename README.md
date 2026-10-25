@@ -372,7 +372,7 @@ Every `runAgent` call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, 
 
 Each run can spawn up to five Claude processes (~2.5 GB), so hivekit guards the machine:
 
-- **Admission:** a run is refused with **exit 75** (`EX_TEMPFAIL`: retry later; nothing ran, no `result.json`) when `HIVEKIT_MAX_RUNS` (default `1`) runs are already live, or when macOS memory pressure is warning or worse (`kern.memorystatus_vm_pressure_level` ≥ 2). `HIVE_ADMIT=1` bypasses both.
+- **Admission:** a run is refused with **exit 75** (`EX_TEMPFAIL`: retry later; nothing ran, no `result.json`) when `HIVEKIT_MAX_RUNS` (default `1`) runs are already live, or when macOS memory pressure is critical (`kern.memorystatus_vm_pressure_level` = 4). At warning a run is admitted but runs one agent per phase (warning is normal on a Mac with many sessions open). `HIVE_ADMIT=1` bypasses both.
 - **Fan-out:** review/improve phases run at most `HIVEKIT_MAX_AGENTS` (default `3`) agents at once, and `1` while memory pressure is ≥ 2.
 - **Registry:** every live run writes `~/.hivekit/runs/<runId>.json` (override the directory with `HIVEKIT_RUNS_DIR`), removed on exit, crash, SIGINT or SIGTERM. Dead pids are pruned on read.
 
