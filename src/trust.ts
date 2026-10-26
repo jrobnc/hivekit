@@ -102,8 +102,11 @@ function runOne(index: number, c: Criterion, cwd: string, env: NodeJS.ProcessEnv
       });
     };
     const destroyPipes = () => { child.stdout!.destroy(); child.stderr!.destroy(); };
-    // shell:false — the shell is the explicit `bash -lc`; detached gives the command its own process group.
-    const child = spawn("bash", ["-lc", command], { shell: false, cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    // shell:false — the shell is the explicit `bash -c`; detached gives the command its own process group.
+    // NOT a login shell: on macOS `bash -l` runs /etc/profile, whose path_helper moves /usr/bin ahead of the
+    // operator's PATH, so `python3` silently became the system 3.9 instead of the run's interpreter
+    // (2026-10-26: every check of a kit build failed on `import tomllib`). The run's PATH is the contract.
+    const child = spawn("bash", ["-c", command], { shell: false, cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
     child.stdout!.on("data", (d: Buffer) => out.push(d));
     child.stderr!.on("data", (d: Buffer) => err.push(d));
     child.on("error", (e) => { spawnFailed = true; settle(null, e.message); }); // e.g. bash missing: a failed record, never a throw

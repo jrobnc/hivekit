@@ -109,3 +109,14 @@ test("secret-looking and agent env vars are stripped; HIVEKIT_CHECK_ENV_KEEP res
   const kept = await run(cmd, { env: { ...base, HIVEKIT_CHECK_ENV_KEEP: "GITHUB_TOKEN, CLAUDE_CODE_OAUTH_TOKEN,ANTHROPIC_BASE_URL" } });
   assert.equal(kept.stdoutTail.trim(), "g|||");
 });
+
+test("checks run with the run's PATH, not a login shell's (macOS path_helper would reorder it)", async () => {
+  const { writeFileSync, chmodSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "hk-path-"));
+  writeFileSync(join(dir, "python3"), "#!/bin/sh\necho from-run-path\n");
+  chmodSync(join(dir, "python3"), 0o755);
+  const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+  const [r] = await runChecks([{ tier: "auto", text: "t", command: "python3" }], { cwd: dir, env, timeoutMs: 10000 });
+  assert.equal(r.exitCode, 0);
+  assert.match(r.stdoutTail, /from-run-path/);
+});
