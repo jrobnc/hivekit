@@ -163,6 +163,9 @@ test("getProvider config validation", () => {
   assert.equal(p.modelFor("plan"), "a");
   assert.equal(p.modelFor("build"), "b");
 
+  const capEnv = { HIVEKIT_PROVIDER: "openai-compatible", HIVEKIT_PROVIDER_CONFIG: good, HIVEKIT_MAX_USD_PER_AGENT: "2" };
+  assert.throws(() => getProvider(capEnv), (e) => /HIVEKIT_MAX_USD_PER_AGENT/.test(e.message) && /"b"/.test(e.message));
+
   const badJson = join(dir, "bad.json"); writeFileSync(badJson, "{nope");
   const badUrl = join(dir, "url.json");
   writeFileSync(badUrl, JSON.stringify({ name: "openai-compatible", baseUrl: 42, models: { frontier: "a", workhorse: "b" } }));
@@ -195,4 +198,18 @@ test("auth header and query secrets never reach the error text", async () => {
       (e) => /401/.test(e.message) && !e.message.includes("sekret-123") && !e.message.includes("qsecret")
     );
   } finally { delete process.env.HK_TEST_KEY; await srv.close(); }
+});
+
+test("Glob trailing ** and Grep glob without a slash match nested files", async () => {
+  const cwd = tmp();
+  await runTool("Write", JSON.stringify({ file_path: "src/a.ts", content: "x" }), { cwd, allowedTools: ["Write"] });
+  await runTool("Write", JSON.stringify({ file_path: "src/sub/b.ts", content: "x" }), { cwd, allowedTools: ["Write"] });
+  await runTool("Write", JSON.stringify({ file_path: "src/c.js", content: "x" }), { cwd, allowedTools: ["Write"] });
+  const ctx = { cwd, allowedTools: ["Glob", "Grep"] };
+  const g = await runTool("Glob", JSON.stringify({ pattern: "src/**" }), ctx);
+  for (const f of ["src/a.ts", "src/sub/b.ts", "src/c.js"]) assert.match(g, new RegExp(f));
+  const r = await runTool("Grep", JSON.stringify({ pattern: ".", glob: "*.ts" }), ctx);
+  assert.match(r, /src\/a\.ts/);
+  assert.match(r, /src\/sub\/b\.ts/);
+  assert.doesNotMatch(r, /c\.js/);
 });

@@ -71,48 +71,58 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleConfig): 
         ...extra,
       });
 
-      while (turns < input.maxTurns) {
-        let body: any;
-        try {
-          const res = await fetch(url, {
-            method: "POST",
-            headers: headers(),
-            body: JSON.stringify({ model: input.model, messages, ...(tools.length ? { tools } : {}) }),
-            signal: AbortSignal.timeout(timeoutMs),
-          });
-          if (!res.ok) throw new Error(`openai-compatible: POST ${shown} → ${res.status}: ${redact(await res.text())}`);
-          body = await res.json();
-        } catch (err: any) {
-          if (String(err?.message).startsWith("openai-compatible:")) throw err;
-          if (err?.name === "TimeoutError") throw new Error(`openai-compatible: POST ${shown} timed out after ${timeoutMs}ms`);
-          if (err?.name === "SyntaxError") throw new Error(`openai-compatible: POST ${shown} returned invalid JSON`);
-          // Not err.message: undici messages can contain the full URL.
-          throw new Error(`openai-compatible: POST ${shown} failed: ${err?.cause?.code ?? err?.name}`);
-        }
-        const message = body?.choices?.[0]?.message;
-        if (!message) {
-          throw new Error(`openai-compatible: POST ${shown} returned no choices[0].message${body?.error?.message ? ": " + redact(String(body.error.message)) : ""}`);
-        }
-        turns++;
-        input.onProgress?.(".");
-        usage.input_tokens += Number(body.usage?.prompt_tokens ?? 0);
-        usage.output_tokens += Number(body.usage?.completion_tokens ?? 0);
-        messages.push(message);
-        last = message.content ?? "";
+      try {
+        while (turns < input.maxTurns) {
+          let body: any;
+          try {
+            const res = await fetch(url, {
+              method: "POST",
+              headers: headers(),
+              body: JSON.stringify({ model: input.model, messages, ...(tools.length ? { tools } : {}) }),
+              signal: AbortSignal.timeout(timeoutMs),
+            });
+            if (!res.ok) throw new Error(`openai-compatible: POST ${shown} → ${res.status}: ${redact(await res.text())}`);
+            body = await res.json();
+          } catch (err: any) {
+            if (String(err?.message).startsWith("openai-compatible:")) throw err;
+            if (err?.name === "TimeoutError") throw new Error(`openai-compatible: POST ${shown} timed out after ${timeoutMs}ms`);
+            if (err?.name === "SyntaxError") throw new Error(`openai-compatible: POST ${shown} returned invalid JSON`);
+            // Not err.message: undici messages can contain the full URL.
+            throw new Error(`openai-compatible: POST ${shown} failed: ${err?.cause?.code ?? err?.name}`);
+          }
+          const message = body?.choices?.[0]?.message;
+          if (!message) {
+            throw new Error(`openai-compatible: POST ${shown} returned no choices[0].message${body?.error?.message ? ": " + redact(String(body.error.message)) : ""}`);
+          }
+          turns++;
+          input.onProgress?.(".");
+          usage.input_tokens += Number(body.usage?.prompt_tokens ?? 0);
+          usage.output_tokens += Number(body.usage?.completion_tokens ?? 0);
+          messages.push(message);
+          last = message.content ?? "";
 
-        if (!message.tool_calls?.length) return out({});
+          if (!message.tool_calls?.length) {
+            const finish = body.choices[0].finish_reason;
+            return finish === "length" || finish === "content_filter" ? out({ isError: true, subtype: `finish_${finish}` }) : out({});
+          }
 
-        for (const call of message.tool_calls) {
-          const content = await runTool(call.function?.name, call.function?.arguments, {
-            cwd: input.cwd,
-            allowedTools: input.allowedTools,
-            apiKeyEnv: config.apiKeyEnv,
-          });
-          messages.push({ role: "tool", tool_call_id: call.id, content });
+          for (const call of message.tool_calls) {
+            const content = await runTool(call.function?.name, call.function?.arguments, {
+              cwd: input.cwd,
+              allowedTools: input.allowedTools,
+              apiKeyEnv: config.apiKeyEnv,
+            });
+            messages.push({ role: "tool", tool_call_id: call.id, content });
+          }
+          // Checked only after tool turns, so a final no-tool turn can cross the cap.
+          if (input.maxBudgetUsd !== undefined && cost() > input.maxBudgetUsd) {
+            return out({ isError: true, subtype: "error_max_budget_usd" });
+          }
         }
-        if (input.maxBudgetUsd !== undefined && cost() > input.maxBudgetUsd) {
-          return out({ isError: true, subtype: "error_max_budget_usd" });
-        }
+      } catch (err) {
+        // Turn-1 failures still reject; later ones return `thrown` so runAgent ledgers the spend already incurred.
+        if (turns === 0) throw err;
+        return out({ isError: true, thrown: err });
       }
       return out({ isError: true, subtype: "error_max_turns" });
     },

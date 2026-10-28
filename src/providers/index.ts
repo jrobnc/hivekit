@@ -27,5 +27,13 @@ export function getProvider(env: NodeJS.ProcessEnv = process.env): Provider {
   }
   const parsed = OpenAICompatibleConfigSchema.safeParse(json);
   if (!parsed.success) throw new Error(`invalid HIVEKIT_PROVIDER_CONFIG ${path}: ${z.prettifyError(parsed.error)}`);
+  const cap = Number(env.HIVEKIT_MAX_USD_PER_AGENT); // same "unset" semantics as positiveNumber (not imported: circular)
+  if (Number.isFinite(cap) && cap > 0) {
+    for (const model of [parsed.data.models.frontier, parsed.data.models.workhorse]) {
+      if (!parsed.data.pricesUsdPerMTok?.[model]) {
+        throw new Error(`HIVEKIT_MAX_USD_PER_AGENT is set but ${path} has no pricesUsdPerMTok entry for model "${model}"; add one or unset the cap`);
+      }
+    }
+  }
   return createOpenAICompatibleProvider(parsed.data);
 }
