@@ -358,7 +358,7 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `HIVEKIT_REVIEW_ALLOW_BASH` | `1` | unset | Gives review-mode planner, reviewers and advisor `Bash` (default: `Read/Glob/Grep` only), and also runs `[auto]` commands from an intent inside the reviewed repo. A prompt injection or hostile `HIVE.md` in the reviewed repo can then execute commands. The evaluator never gets Bash. |
 | `HIVEKIT_LEDGER` | file path | `~/.cache/hivekit/ledger.jsonl` | Where the cost ledger is written. `npm test` points it at a throwaway file so tests never touch your real ledger. |
 | `HIVEKIT_MAX_USD_PER_AGENT` | decimal | unset | Per-agent cost cap passed to the Agent SDK as `maxBudgetUsd`. |
-| `HIVEKIT_MAX_RUNS` | positive integer | `1` | Max concurrent hivekit runs on the machine; a further run is refused with exit 75. |
+| `HIVEKIT_MAX_RUNS` | positive integer | `2` | Max concurrent hivekit runs on the machine; a further run is refused with exit 75. A run beside another also needs normal memory pressure. |
 | `HIVEKIT_MAX_AGENTS` | positive integer | `3` | Max parallel agents per review/improve phase; forced to `1` under macOS memory pressure. |
 | `HIVEKIT_RUNS_DIR` | directory | `~/.hivekit/runs` | Where live runs are registered. |
 | `HIVE_ADMIT` | `1` to bypass | unset | Skips both admission checks (active run, memory pressure). `npm test` sets it. |
@@ -374,9 +374,9 @@ Every `runAgent` call is logged to `~/.cache/hivekit/ledger.jsonl` (`ts, label, 
 
 ## Memory and concurrency
 
-Each run can spawn up to five Claude processes (~2.5 GB), so hivekit guards the machine:
+Each run can spawn up to five Claude processes (~2.5 GB), so hivekit guards the machine. Memory is read before a run (admission) and before every fan-out phase (the agent budget), so a run admitted at normal pressure narrows itself if pressure rises:
 
-- **Admission:** a run is refused with **exit 75** (`EX_TEMPFAIL`: retry later; nothing ran, no `result.json`) when `HIVEKIT_MAX_RUNS` (default `1`) runs are already live, or when macOS memory pressure is critical (`kern.memorystatus_vm_pressure_level` = 4). At warning a run is admitted but runs one agent per phase (warning is normal on a Mac with many sessions open). `HIVE_ADMIT=1` bypasses both.
+- **Admission:** a run is refused with **exit 75** (`EX_TEMPFAIL`: retry later; nothing ran, no `result.json`) when `HIVEKIT_MAX_RUNS` (default `2`) runs are already live, when another run is live and macOS memory pressure is above normal (`kern.memorystatus_vm_pressure_level` ≥ 2), or when pressure is critical (= 4). At warning a run is admitted but runs one agent per phase (warning is normal on a Mac with many sessions open). `HIVE_ADMIT=1` bypasses both.
 - **Fan-out:** review/improve phases run at most `HIVEKIT_MAX_AGENTS` (default `3`) agents at once, and `1` while memory pressure is ≥ 2.
 - **Registry:** every live run writes `~/.hivekit/runs/<runId>.json` (override the directory with `HIVEKIT_RUNS_DIR`), removed on exit, crash, SIGINT or SIGTERM. Dead pids are pruned on read.
 

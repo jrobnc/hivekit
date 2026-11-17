@@ -73,12 +73,25 @@ test("SIGTERM removes the registry file and exits 143", async () => {
 });
 
 test("checkAdmission: max runs", () => {
-  const r = checkAdmission([entry()], 1, {});
+  assert.equal(checkAdmission([entry()], 1, {}).ok, true, "two runs by default at normal pressure");
+  const r = checkAdmission([entry(), entry()], 1, {});
   assert.equal(r.ok, false);
   assert.match(r.message, new RegExp(String(process.pid)));
   assert.match(r.message, /\/some\/app/);
   assert.match(r.message, /build/);
-  assert.equal(checkAdmission([entry()], 1, { HIVEKIT_MAX_RUNS: "2" }).ok, true);
+  assert.match(r.message, /HIVEKIT_MAX_RUNS=2/);
+  assert.equal(checkAdmission([entry()], 1, { HIVEKIT_MAX_RUNS: "1" }).ok, false, "the old single-run limit is still settable");
+  assert.equal(checkAdmission([entry(), entry()], 1, { HIVEKIT_MAX_RUNS: "3" }).ok, true);
+});
+
+test("checkAdmission: a run beside another needs normal memory pressure", () => {
+  const r = checkAdmission([entry()], 2, {});
+  assert.equal(r.ok, false);
+  assert.match(r.message, /warning \(level 2\)/);
+  assert.match(r.message, /normal pressure/);
+  assert.equal(checkAdmission([entry()], 2, { HIVEKIT_MAX_RUNS: "5" }).ok, false, "raising the cap does not waive the pressure rule");
+  assert.equal(checkAdmission([entry()], undefined, {}).ok, true, "pressure unreadable (not macOS): the count alone decides");
+  assert.equal(checkAdmission([], 2, {}).ok, true, "the first run is still admitted at warning");
 });
 
 test("checkAdmission: memory pressure", () => {
@@ -124,6 +137,7 @@ test("CLI refuses with exit 75 when a run is active, creating no run dir", () =>
   const cwd = tmp();
   try {
     writeFileSync(join(dir, "x.json"), JSON.stringify(entry({ cwd: "/seeded/cwd" })));
+    writeFileSync(join(dir, "y.json"), JSON.stringify(entry({ cwd: "/seeded/other" })));  // two live runs = the default cap
     const r = cli(["review something", "--cwd", cwd], dir);
     assert.equal(r.status, 75);
     assert.ok(r.stderr.includes(String(process.pid)));
