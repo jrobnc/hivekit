@@ -289,7 +289,7 @@ Commands:
   status, --status                 Print live runs + memory pressure as one JSON line, then exit
 
 Environment:
-  HIVEKIT_MAX_RUNS                 Max concurrent hivekit runs on this machine (default: 1)
+  HIVEKIT_MAX_RUNS                 Max concurrent hivekit runs on this machine (default: 2; a 2nd run needs normal memory pressure)
   HIVEKIT_MAX_AGENTS               Max parallel agents per phase (default: 3; 1 under memory pressure)
   HIVEKIT_RUNS_DIR                 Run registry directory (default: ~/.hivekit/runs)
   HIVEKIT_CHECK_TIMEOUT            Seconds before an [auto] check is killed (default: 600)

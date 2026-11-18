@@ -12,7 +12,7 @@ export interface RunEntry { pid: number; runId: string; cwd: string; mode: Mode;
 // EX_TEMPFAIL (sysexits.h): "try again later".
 export const ADMISSION_EXIT_CODE = 75;
 
-const DEFAULT_MAX_RUNS = 1;
+const DEFAULT_MAX_RUNS = 2;
 const DEFAULT_MAX_AGENTS = 3;
 
 export function runsDir(env: Record<string, string | undefined> = process.env): string {
@@ -159,6 +159,16 @@ export function checkAdmission(
       message:
         `[hivekit] REFUSED: ${runs.length} hivekit run(s) already active (HIVEKIT_MAX_RUNS=${max}):\n${lines.join("\n")}\n` +
         `Wait for it to finish, raise HIVEKIT_MAX_RUNS, or set HIVE_ADMIT=1 to bypass.`,
+    };
+  }
+  // A run beside another is admitted only while memory pressure is normal: two runs can hold six agents, and
+  // "warning" already means the compressor is filling. The first run keeps the wider rule below.
+  if (runs.length >= 1 && pressure !== undefined && pressure >= 2) {
+    return {
+      ok: false,
+      message:
+        `[hivekit] REFUSED: ${runs.length} hivekit run(s) already active and macOS memory pressure is ${pressureLabel(pressure)}; ` +
+        `a further run starts only at normal pressure. Retry later, or set HIVE_ADMIT=1 to bypass.`,
     };
   }
   // Refuse only at critical (level 4). "warning" is the compressor filling, which is normal on a Mac with
