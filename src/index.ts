@@ -14,9 +14,10 @@ import { runPlanner } from "./planner.js";
 import { runGenerator } from "./generator.js";
 import { runEvaluator } from "./evaluator.js";
 import { advise, jevYesNo } from "./advisor.js";
-import { TIERS, appendLedger } from "./sdk-utils.js";
+import { TIERS, appendLedger, setLedgerAgent } from "./sdk-utils.js";
 import { runChecks, checkTimeoutMs, reviewBashWarning, reviewChecksBlocked } from "./trust.js";
 import { loadIntent, intentCompilePreamble, toIntentYaml } from "./intent.js";
+import { loadAgent, type AgentParse } from "./agent.js";
 import {
   applyCheckGate,
   isFailedCheck,
@@ -37,6 +38,7 @@ import type {
   TurnPhase,
   RunContext,
   IntentDoc,
+  AgentDef,
   EvaluationResult,
   RunOutcome,
   CheckResult,
@@ -73,6 +75,9 @@ function parseArgs(argv: string[]): HarnessConfig {
   let sprint: number | undefined;
   let planFile: string | undefined;
   let intentFile: string | undefined;
+  let agentFile: string | undefined;
+  let validateOnly = false;
+  let json = false;
   let emitYaml = false;
   const checks: string[] = [];
   let maxTurns: number | undefined;
@@ -141,6 +146,15 @@ function parseArgs(argv: string[]): HarnessConfig {
       case "--intent":
         intentFile = resolve(nextArg("--intent"));
         break;
+      case "--agent":
+        agentFile = resolve(nextArg("--agent"));
+        break;
+      case "--validate":
+        validateOnly = true;
+        break;
+      case "--json":
+        json = true;
+        break;
       case "--check":
         checks.push(nextArg("--check"));
         break;
@@ -180,6 +194,15 @@ function parseArgs(argv: string[]): HarnessConfig {
   // auto-discovered HIVE.md instead of a task string. resolveIntent() does the
   // final check once the filesystem has been consulted.
 
+  if (agentFile && (intentFile || planFile || checks.length || task)) {
+    console.error("Error: --agent cannot be combined with --intent, --plan, --check or a task");
+    process.exit(2);
+  }
+  if ((validateOnly || json) && !agentFile) {
+    console.error("Error: --validate and --json require --agent");
+    process.exit(2);
+  }
+
   // Infer mode from task if not explicitly set
   if (!explicitMode) {
     if (/\b(review|audit|evaluate|assess|check)\b/i.test(task)) {
@@ -203,6 +226,9 @@ function parseArgs(argv: string[]): HarnessConfig {
     sprint,
     planFile,
     intentFile,
+    agentFile,
+    validateOnly,
+    json,
     checks,
     emitYaml,
     maxTurns,
@@ -217,7 +243,7 @@ function parseArgs(argv: string[]): HarnessConfig {
  * intentFile, mode, name) and returns the parsed IntentDoc, or undefined for a
  * plain task run. Exits if there is neither a task nor an intent file.
  */
-async function resolveIntent(config: HarnessConfig): Promise<IntentDoc | undefined> {
+async function resolveIntent(config: HarnessConfig, agent?: AgentDef): Promise<IntentDoc | undefined> {
   let intentPath = config.intentFile;
 
   if (!intentPath && !config.task) {
@@ -245,17 +271,20 @@ async function resolveIntent(config: HarnessConfig): Promise<IntentDoc | undefin
   }
 
   let intent: IntentDoc;
-  try {
-    intent = await loadIntent(intentPath);
-  } catch {
-    console.error(`Error: could not read intent file ${intentPath}`);
-    process.exit(1);
+  if (agent) intent = agent.intent; // body only; front matter never reaches the planner
+  else {
+    try {
+      intent = await loadIntent(intentPath);
+    } catch {
+      console.error(`Error: could not read intent file ${intentPath}`);
+      process.exit(1);
+    }
   }
 
   config.intentFile = intentPath;
   config.task = intentCompilePreamble(intent);
   if (!config.explicitMode) config.mode = "build"; // compiling an intent is a build by default
-  config.name ??= "hive"; // keep run ids readable (task is now a long preamble)
+  config.name ??= agent?.name ?? "hive"; // keep run ids readable (task is now a long preamble)
   console.log(
     `[intent] Driving run from ${intentPath} — ${intent.successCriteria.length} success criteria`
   );
@@ -276,6 +305,9 @@ Options:
   --plan <path>                    Reuse an existing plan file (skip planner)
   --intent <path>                  Drive the run from a HIVE.md / intent.md (intent-as-source)
   [auto] checks                    "- [auto] text: \`cmd\`" or a \`\`\`check block under the bullet; hivekit runs it, not the agent
+  --agent <path>                   Run an agent definition (HIVE.md + front matter; see docs/AGENT_SPEC.md)
+  --validate                       With --agent: validate only, no run
+  --json                           With --agent --validate: print the result as one JSON object
   --check <cmd>                    Add an [auto] check to a task-string run (repeatable; not with --intent)
   --yaml                           Also emit a structured intent.yaml alongside the markdown (opt-in)
   --max-turns <N>                  Max turns for every phase (overridden per phase below)
@@ -440,6 +472,7 @@ async function finalizeRun(
     reportPath,
     error: args.error,
     turnLimits: resolveTurnLimits(config),
+    agent: config.agentName,
     failedToReview: args.failedToReview,
     autoChecks: args.checks?.length
       ? { total: args.checks.length, failed: args.checks.filter(isFailedCheck).map((c) => c.index), path: `checks-round-${args.checksRound}.json`, ...orphaned }
@@ -514,6 +547,22 @@ async function finalizeRun(
   return args.outcome;
 }
 
+/** --validate output: text or one JSON object, and the exit code. */
+function validateOutput(parsed: AgentParse, json?: boolean): { text: string; code: number } {
+  if (!parsed.ok) {
+    return { text: json ? JSON.stringify({ ok: false, errors: parsed.errors }) : parsed.errors.map((e) => `agent: ${e}`).join("\n"), code: 2 };
+  }
+  const a = parsed.agent;
+  const crits = a.intent.successCriteria;
+  if (!json) return { text: `agent ${a.name}: ok (${crits.length} criteria; schedule ${a.schedule})`, code: 0 };
+  const agent = {
+    name: a.name, description: a.description ?? null, schedule: a.schedule, project: a.project ?? null,
+    principal: a.principal ?? null, output: a.output, budgetUsd: a.budgetUsd ?? null,
+  };
+  const criteria = crits.map((c) => ({ tier: c.tier, text: c.text, hasCommand: !!c.command }));
+  return { text: JSON.stringify({ ok: true, agent, criteria, body: a.body }), code: 0 };
+}
+
 async function main(): Promise<RunOutcome> {
   // Machine-readable status for hive-stats / memguard: no config, provider, or run dir involved.
   if (process.argv[2] === "status" || process.argv.slice(2).includes("--status")) {
@@ -522,7 +571,25 @@ async function main(): Promise<RunOutcome> {
     return new Promise<never>(() => {});
   }
   const config = parseArgs(process.argv);
-  const intent = await resolveIntent(config);
+  let agent: AgentDef | undefined;
+  if (config.agentFile) {
+    const parsed = await loadAgent(config.agentFile);
+    if (config.validateOnly) {
+      const out = validateOutput(parsed, config.json);
+      const write = out.code === 0 || config.json ? process.stdout : process.stderr;
+      write.write(out.text + "\n", () => process.exit(out.code)); // exit after flush; pipes are async on macOS
+      return new Promise<never>(() => {});
+    }
+    if (!parsed.ok) {
+      for (const e of parsed.errors) console.error(`agent: ${e}`);
+      process.exit(2);
+    }
+    agent = parsed.agent;
+    config.agentName = agent.name;
+    config.intentFile = config.agentFile; // reviewChecksBlocked / --yaml treat it like --intent
+    setLedgerAgent(agent.name);
+  }
+  const intent = await resolveIntent(config, agent);
   if (intent && config.checks.length) {
     console.error("Error: --check adds checks to a task-string run; put the command on the intent's [auto] bullet");
     process.exit(1);

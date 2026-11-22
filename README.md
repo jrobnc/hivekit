@@ -135,6 +135,12 @@ In `--mode review` the planner, reviewers, evaluator and advisor get `Read/Glob/
 
 > A criterion with no verifier is a wish, not a criterion. The tier sets autonomy — `[auto]` runs free, `[human]` stops at a gate. Full spec: **[docs/HIVE_SPEC.md](docs/HIVE_SPEC.md)**.
 
+## Agents
+
+An agent definition is a `HIVE.md` body preceded by a small `key: value` front matter block (`name`, `schedule`, `project`, `principal`, `output`, `budget_usd`). `hivekit --agent <file>` runs it exactly like `--intent` on the body, names the run after the agent, and records `agent` in `result.json` and the ledger. `hivekit --agent <file> --validate [--json]` checks the file and spends nothing; a broken file exits 2 before any run starts.
+
+hivekit owns the format and the judging only. Scheduling, repo access and budgets belong to whatever launches it: the front matter keys other than `name` are checked for syntax and never acted on. See **[docs/AGENT_SPEC.md](docs/AGENT_SPEC.md)** and the example [`examples/agents/dependency-watch.md`](examples/agents/dependency-watch.md).
+
 ## Anatomy of a run — what a spec turns into
 
 A `HIVE.md` isn't "executed" directly. hivekit **compiles it to a markdown plan, builds against the plan, then reconciles the result against your pinned criteria.** No YAML, no DSL — every intermediate artifact is human-readable markdown you can open and inspect.
@@ -315,6 +321,9 @@ HIVEKIT_PROVIDER=openai-compatible HIVEKIT_PROVIDER_CONFIG=./provider.json hivek
 | Flag | Values | Default | Description |
 |------|--------|---------|-------------|
 | `--intent` | file path | auto-discovered | Drive the run from a `HIVE.md` / `intent.md` |
+| `--agent` | file path | none | Run an agent definition (`HIVE.md` + front matter; see [docs/AGENT_SPEC.md](docs/AGENT_SPEC.md)). Not combinable with `--intent`, `--plan`, `--check` or a task |
+| `--validate` | flag | off | With `--agent`: validate the file and exit (0 valid, 2 invalid); no run |
+| `--json` | flag | off | With `--agent --validate`: print the result as one JSON object |
 | `--yaml` | flag | off | Also emit a structured `intent.yaml` alongside the markdown artifacts (machine view for tooling; markdown stays the source of truth) |
 | `--mode` | `review`, `build`, `improve` | inferred | Run mode |
 | `--depth` | `quick`, `standard`, `deep` | `standard` | Agent thoroughness |

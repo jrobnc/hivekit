@@ -33,8 +33,9 @@ const BULLET_RE = /^\s*[-*]\s+(.*)$/;
  *  `human` (fail safe — never silently auto-pass an unspecified criterion).
  *  An `[auto]` bullet may carry the command hivekit runs itself: a trailing code span
  *  (`- [auto] tests pass: \`npm test\``) or a ```check fence under the bullet (fence wins).
- *  Lines inside any fence are never bullets. */
-export function extractSuccessCriteria(raw: string): Criterion[] {
+ *  Lines inside any fence are never bullets. `onUntagged` (agent files) is called with the
+ *  1-based index of each untagged bullet. */
+export function extractSuccessCriteria(raw: string, onUntagged?: (n: number) => void): Criterion[] {
   const section = extractSection(raw, "Success Criteria");
   if (!section) return [];
   const lines = section.split(/\r?\n/);
@@ -70,6 +71,7 @@ export function extractSuccessCriteria(raw: string): Criterion[] {
     const tier = (tagged ? tagged[1].toLowerCase() : "human") as Criterion["tier"];
     const crit: Criterion = { tier, text: tagged ? tagged[2].trim() : body };
     const n = crits.length + 1;
+    if (!tagged) onUntagged?.(n);
 
     // A ```check fence directly under the bullet (blank lines allowed in between).
     let k = i;
@@ -236,3 +238,6 @@ ${transcriptBlock}
 If any [human] gates remain, state them explicitly in the report under "Pending human sign-off".
 `;
 }
+
+export { parseAgent, loadAgent } from "./agent.js";
+export type { AgentDef } from "./agent.js";

@@ -12,3 +12,11 @@ test('package self-reference exposes intent compiler helpers', () => {
     { tier: 'human', text: 'human approval required' },
   ]);
 });
+
+test('package self-reference exposes the agent definition parser', async () => {
+  const { parseAgent, loadAgent } = await import('hivekit/intent');
+  assert.equal(typeof parseAgent, 'function');
+  assert.equal(typeof loadAgent, 'function');
+  const r = parseAgent('---\nname: demo-agent\n---\n## Objective\nx\n\n## Success Criteria\n- [judge] fine\n');
+  assert.equal(r.ok, true);
+});
