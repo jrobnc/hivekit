@@ -74,6 +74,7 @@ mock.module("../dist/sdk-utils.js", {
   namedExports: {
     runAgent: async () => "stubbed",
     appendLedger: async () => {},
+    setLedgerAgent: () => {},
     TIERS: {
       plan: { role: "plan", effort: "high" },
       build: { role: "build", effort: "medium" },
@@ -84,6 +85,7 @@ mock.module("../dist/sdk-utils.js", {
       adviseEscalated: { role: "advise-escalated", effort: "high" },
     },
     appendLedger: async () => {},
+    setLedgerAgent: () => {},
   },
 });
 

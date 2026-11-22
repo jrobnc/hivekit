@@ -20,3 +20,8 @@ test("bin/hivekit --help shows the same", () => {
   assert.match(out, /--check/);
   assert.match(out, /HIVEKIT_CHECK_ENV_KEEP/);
 });
+
+test("--help documents --agent, --validate and --json", () => {
+  const out = execFileSync("node", [join(root, "dist", "index.js"), "--help"], { encoding: "utf-8" });
+  for (const f of [/--agent/, /--validate/, /--json/]) assert.match(out, f);
+});

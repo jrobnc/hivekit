@@ -57,11 +57,17 @@ export const TIERS = {
 /** Cost ledger. HIVEKIT_LEDGER points it elsewhere (the test suite uses a throwaway file). */
 export const LEDGER = process.env.HIVEKIT_LEDGER || join(homedir(), ".cache", "hivekit", "ledger.jsonl");
 
+/** Set once by the CLI for an `--agent` run; stamps every ledger line (env vars would leak into spawned commands). */
+let ledgerAgent: string | undefined;
+export function setLedgerAgent(name?: string): void {
+  ledgerAgent = name;
+}
+
 /** Append one line to the cost ledger. Bookkeeping: an unwritable ~/.cache must never crash a run before result.json exists. */
 export async function appendLedger(entry: Record<string, unknown>): Promise<void> {
   try {
     await mkdir(dirname(LEDGER), { recursive: true });
-    await appendFile(LEDGER, JSON.stringify(entry) + "\n", "utf-8");
+    await appendFile(LEDGER, JSON.stringify({ ...entry, ...(ledgerAgent ? { agent: ledgerAgent } : {}) }) + "\n", "utf-8");
   } catch (err) {
     console.warn(`  [ledger] not written (${err instanceof Error ? err.message : err})`);
   }

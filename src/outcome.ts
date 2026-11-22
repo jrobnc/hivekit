@@ -217,6 +217,7 @@ export interface ResultInput {
   reportPath: string;
   error?: string;
   turnLimits?: TurnLimits;
+  agent?: string;
   failedToReview?: { dimension: string; error: string }[];
   autoChecks?: RunResult["autoChecks"];
   autoChecksNotRun?: RunResult["autoChecksNotRun"];
@@ -249,6 +250,7 @@ export function buildRunResult(input: ResultInput): RunResult {
   if (input.autoChecks) result.autoChecks = input.autoChecks;
   if (input.autoChecksNotRun) result.autoChecksNotRun = input.autoChecksNotRun;
   if (input.turnLimits !== undefined) result.turnLimits = input.turnLimits;
+  if (input.agent !== undefined) result.agent = input.agent;
   if (input.failedToReview?.length) {
     result.failedToReview = input.failedToReview;
     result.erroredDimensions = input.failedToReview.length;

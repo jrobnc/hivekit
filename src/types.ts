@@ -46,6 +46,19 @@ export interface IntentDoc {
   successCriteria: Criterion[];
 }
 
+/** A validated agent definition (docs/AGENT_SPEC.md). Front matter fields with defaults applied. */
+export interface AgentDef {
+  name: string;
+  description?: string;
+  schedule: string; // "manual" when absent
+  project?: string;
+  principal?: string;
+  output: "pr" | "report"; // "pr" when absent
+  budgetUsd?: number;
+  intent: IntentDoc; // built from the body only
+  body: string;
+}
+
 export interface HarnessConfig {
   task: string;
   mode: Mode;
@@ -61,6 +74,14 @@ export interface HarnessConfig {
   planFile?: string;
   /** Path to a HIVE.md / intent.md that drives the run (intent-as-source) */
   intentFile?: string;
+  /** Path to an agent definition (HIVE.md + front matter); see docs/AGENT_SPEC.md */
+  agentFile?: string;
+  /** Set once an --agent file validated; names the run and stamps result.json + ledger */
+  agentName?: string;
+  /** --validate: check the agent file only, no run */
+  validateOnly?: boolean;
+  /** --json: with --validate, print one JSON object */
+  json?: boolean;
   /** Commands from --check (task-string runs only) */
   checks: string[];
   /** Also emit a structured intent.yaml alongside the markdown artifacts */
@@ -160,6 +181,8 @@ export type RunOutcome =
 
 /** Machine-readable run result written to {runDir}/result.json. */
 export interface RunResult {
+  /** Name of the agent definition that drove this run; absent for every other run. */
+  agent?: string;
   /** Count of review dimensions that FAILED-TO-REVIEW; present only when > 0. */
   erroredDimensions?: number;
   failedToReview?: { dimension: string; error: string }[];
