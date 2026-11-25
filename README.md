@@ -356,7 +356,7 @@ Read by the launcher (`bin/hivekit`, and its `bin/harness` alias) and the runtim
 | `ANTHROPIC_API_KEY` | API key | unset | Stripped from the environment by the launcher **before Node starts**, so a stray key can't silently switch the run to metered API billing. Reaches the Agent SDK only if `HARNESS_ALLOW_API_KEY` is set. |
 | `HARNESS_ALLOW_API_KEY` | any non-empty value | unset | Opts out of that strip for one run: `ANTHROPIC_API_KEY` is passed through (metered API billing) and the launcher prints a warning to stderr. |
 | `HARNESS_DEBUG` | any non-empty value | unset | Per-message agent tracing — logs `[agent] msg#N type=…` to stderr for every SDK message, in every phase. |
-| `HIVEKIT_ALLOW_NO_TOKEN` | any non-empty value | unset | Skips the launcher's no-OAuth-token check (tests/CI only). |
+| `HIVEKIT_ALLOW_NO_TOKEN` | any non-empty value | unset | Skips the launcher's no-OAuth-token check (tests/CI only). `--validate` never needs a token. |
 | `HIVEKIT_PROVIDER` | `claude`, `openai-compatible` | `claude` | Which provider runs the agents; see [Providers](#providers). Unknown values fail the run. |
 | `HIVEKIT_PROVIDER_CONFIG` | file path | unset | JSON config, required for `openai-compatible`. |
 | `HIVEKIT_LANE` | string | `""` | Written to every ledger line as `lane`, so spend can be grouped. |

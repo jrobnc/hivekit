@@ -83,12 +83,19 @@ if [[ "${HIVEKIT_PROVIDER:-claude}" == "claude" && -z "${CLAUDE_CODE_OAUTH_TOKEN
     | python3 -c "import sys,json; t=json.load(sys.stdin)['claudeAiOauth']['accessToken']; print('present' if isinstance(t,str) and t else '', end='')" 2>/dev/null || true)"
 fi
 
+# `--validate` only parses an agent file and starts no agent, so it needs no token: a new install can prove itself
+# before anyone has signed in, and a scheduler can cross-check a file from a job that holds no credential.
+validate_only=""
+for arg in "$@"; do
+  [[ "$arg" == "--validate" ]] && validate_only=1
+done
+
 # Only gated for the claude provider: other providers run no Claude work, but the ANTHROPIC_* strip below always applies.
 # Fail fast when no Max OAuth token resolved: without one the Agent SDK can fall back
 # to metered API billing or die mid-run. HARNESS_ALLOW_API_KEY is the deliberate
 # API-billing override; HIVEKIT_ALLOW_NO_TOKEN is for tests/CI only. A
 # ~/.claude/.credentials.json file (Linux/no-Keychain login) also counts as a token source.
-if [[ "${HIVEKIT_PROVIDER:-claude}" == "claude" && -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "$keychain_token" && -z "${HARNESS_ALLOW_API_KEY:-}" && -z "${HIVEKIT_ALLOW_NO_TOKEN:-}" && ! -f "${HOME:-}/.claude/.credentials.json" ]]; then
+if [[ "${HIVEKIT_PROVIDER:-claude}" == "claude" && -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "$keychain_token" && -z "${HARNESS_ALLOW_API_KEY:-}" && -z "${HIVEKIT_ALLOW_NO_TOKEN:-}" && -z "$validate_only" && ! -f "${HOME:-}/.claude/.credentials.json" ]]; then
   echo "[hivekit] ERROR: no Claude Max OAuth token found (checked CLAUDE_CODE_OAUTH_TOKEN, the macOS Keychain, ~/.claude/.credentials.json). Run \`claude /login\`, or set CLAUDE_CODE_OAUTH_TOKEN. (HIVEKIT_ALLOW_NO_TOKEN=1 skips this check, for tests/CI only.)" >&2
   exit 3
 fi
