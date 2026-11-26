@@ -87,6 +87,9 @@ fi
 # before anyone has signed in, and a scheduler can cross-check a file from a job that holds no credential.
 # The launcher cannot tell a `--validate` flag from the same text given as another flag's value, so it only marks that
 # it let the call through; the entry point refuses to start a run that carries the mark.
+# The mark is the launcher's own: a value inherited from the caller's environment is dropped, so it can neither
+# refuse a signed-in run nor stand in for the launcher's decision.
+unset HIVEKIT_TOKEN_GATE_SKIPPED
 validate_only=""
 for arg in "$@"; do
   [[ "$arg" == "--validate" ]] && validate_only=1

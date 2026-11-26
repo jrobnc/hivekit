@@ -216,6 +216,25 @@ test("bin/hivekit does not mark a call that has a token, with or without --valid
   assert.ok(!proc.stdout.includes("HIVEKIT_TOKEN_GATE_SKIPPED"));
 });
 
+test("bin/hivekit drops a mark inherited from the caller's environment", () => {
+  const proc = runLauncherNoToken({ CLAUDE_CODE_OAUTH_TOKEN: "tok", HIVEKIT_TOKEN_GATE_SKIPPED: "validate" }, { args: ["x"] });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(!proc.stdout.includes("HIVEKIT_TOKEN_GATE_SKIPPED"), "an inherited mark must not reach the entry point");
+});
+
+test("the entry point refuses a run that carries the validate mark", () => {
+  // The real entry point, not the fake node: `--validate` here is the value of --name, so this is a run. The unknown
+  // provider and missing cwd make sure nothing can start if the refusal is ever removed; the message proves which
+  // check stopped it.
+  const entry = join(__dirname, "..", "dist", "index.js");
+  const proc = spawnSync(process.execPath, [entry, "do a thing", "--name", "--validate", "--cwd", join(tmpdir(), "hivekit-no-such-dir")], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, HOME: mkdtempSync(join(tmpdir(), "hk-mark-")), HIVEKIT_TOKEN_GATE_SKIPPED: "validate", HIVEKIT_PROVIDER: "none-such" },
+  });
+  assert.equal(proc.status, 3, `stderr: ${proc.stderr}`);
+  assert.match(proc.stderr, /sign-in check was skipped for validation only/);
+});
+
 test("bin/hivekit --agent without --validate still needs a token", () => {
   const proc = runLauncherNoToken({}, { args: ["--agent", "x.md"] });
   assert.equal(proc.status, 3, `stderr: ${proc.stderr}`);
