@@ -207,6 +207,13 @@ test("bin/hivekit --validate needs no token: it starts no agent", () => {
   const proc = runLauncherNoToken({}, { args: ["--agent", "x.md", "--validate"] });
   assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
   assert.ok(proc.stdout.includes("PATH="), "node must have been exec'd");
+  assert.ok(proc.stdout.includes("HIVEKIT_TOKEN_GATE_SKIPPED=validate"), "the call must carry the mark");
+});
+
+test("bin/hivekit does not mark a call that has a token, with or without --validate", () => {
+  const proc = runLauncherNoToken({ CLAUDE_CODE_OAUTH_TOKEN: "tok" }, { args: ["x", "--name", "--validate"] });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(!proc.stdout.includes("HIVEKIT_TOKEN_GATE_SKIPPED"));
 });
 
 test("bin/hivekit --agent without --validate still needs a token", () => {

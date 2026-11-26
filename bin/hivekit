@@ -85,6 +85,8 @@ fi
 
 # `--validate` only parses an agent file and starts no agent, so it needs no token: a new install can prove itself
 # before anyone has signed in, and a scheduler can cross-check a file from a job that holds no credential.
+# The launcher cannot tell a `--validate` flag from the same text given as another flag's value, so it only marks that
+# it let the call through; the entry point refuses to start a run that carries the mark.
 validate_only=""
 for arg in "$@"; do
   [[ "$arg" == "--validate" ]] && validate_only=1
@@ -95,9 +97,13 @@ done
 # to metered API billing or die mid-run. HARNESS_ALLOW_API_KEY is the deliberate
 # API-billing override; HIVEKIT_ALLOW_NO_TOKEN is for tests/CI only. A
 # ~/.claude/.credentials.json file (Linux/no-Keychain login) also counts as a token source.
-if [[ "${HIVEKIT_PROVIDER:-claude}" == "claude" && -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "$keychain_token" && -z "${HARNESS_ALLOW_API_KEY:-}" && -z "${HIVEKIT_ALLOW_NO_TOKEN:-}" && -z "$validate_only" && ! -f "${HOME:-}/.claude/.credentials.json" ]]; then
-  echo "[hivekit] ERROR: no Claude Max OAuth token found (checked CLAUDE_CODE_OAUTH_TOKEN, the macOS Keychain, ~/.claude/.credentials.json). Run \`claude /login\`, or set CLAUDE_CODE_OAUTH_TOKEN. (HIVEKIT_ALLOW_NO_TOKEN=1 skips this check, for tests/CI only.)" >&2
-  exit 3
+if [[ "${HIVEKIT_PROVIDER:-claude}" == "claude" && -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "$keychain_token" && -z "${HARNESS_ALLOW_API_KEY:-}" && -z "${HIVEKIT_ALLOW_NO_TOKEN:-}" && ! -f "${HOME:-}/.claude/.credentials.json" ]]; then
+  if [[ -n "$validate_only" ]]; then
+    export HIVEKIT_TOKEN_GATE_SKIPPED=validate
+  else
+    echo "[hivekit] ERROR: no Claude Max OAuth token found (checked CLAUDE_CODE_OAUTH_TOKEN, the macOS Keychain, ~/.claude/.credentials.json). Run \`claude /login\`, or set CLAUDE_CODE_OAUTH_TOKEN. (HIVEKIT_ALLOW_NO_TOKEN=1 skips this check, for tests/CI only.)" >&2
+    exit 3
+  fi
 fi
 
 if [[ -n "${HARNESS_ALLOW_API_KEY:-}" ]]; then
