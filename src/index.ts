@@ -571,6 +571,12 @@ async function main(): Promise<RunOutcome> {
     return new Promise<never>(() => {});
   }
   const config = parseArgs(process.argv);
+  // bin/hivekit skips its no-token gate when it sees `--validate`, and marks the call. If that text was really another
+  // flag's value, this is a run, and it must not start past a gate that was only lifted for validation.
+  if (process.env.HIVEKIT_TOKEN_GATE_SKIPPED === "validate" && !config.validateOnly) {
+    console.error("Error: --validate was given as another flag's value; the sign-in check was skipped for validation only, so no run is started.");
+    process.exit(3);
+  }
   let agent: AgentDef | undefined;
   if (config.agentFile) {
     const parsed = await loadAgent(config.agentFile);

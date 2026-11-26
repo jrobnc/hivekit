@@ -154,7 +154,7 @@ test("bin/hivekit still strips ANTHROPIC_API_KEY (existing behavior, no regressi
 
 // --- fail-fast when no OAuth token resolves ---------------------------------
 
-function runLauncherNoToken(extraEnv, { security = "#!/usr/bin/env bash\nexit 1\n", credentialsFile = false } = {}) {
+function runLauncherNoToken(extraEnv, { security = "#!/usr/bin/env bash\nexit 1\n", credentialsFile = false, args = ["--help"] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "hivekit-fake-node-"));
   // Empty HOME so a developer's real ~/.claude/.credentials.json can't satisfy the guard.
   const home = mkdtempSync(join(tmpdir(), "hivekit-fake-home-"));
@@ -172,7 +172,7 @@ function runLauncherNoToken(extraEnv, { security = "#!/usr/bin/env bash\nexit 1\
   delete env.HARNESS_ALLOW_API_KEY;
   delete env.HIVEKIT_ALLOW_NO_TOKEN;
   try {
-    return spawnSync("bash", [hivekitBin, "--help"], {
+    return spawnSync("bash", [hivekitBin, ...args], {
       env: { ...env, ...extraEnv },
       encoding: "utf-8",
     });
@@ -201,6 +201,43 @@ test("bin/hivekit proceeds with HIVEKIT_ALLOW_NO_TOKEN=1 and no token", () => {
   const proc = runLauncherNoToken({ HIVEKIT_ALLOW_NO_TOKEN: "1" });
   assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
   assert.ok(proc.stdout.includes("PATH="));
+});
+
+test("bin/hivekit --validate needs no token: it starts no agent", () => {
+  const proc = runLauncherNoToken({}, { args: ["--agent", "x.md", "--validate"] });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(proc.stdout.includes("PATH="), "node must have been exec'd");
+  assert.ok(proc.stdout.includes("HIVEKIT_TOKEN_GATE_SKIPPED=validate"), "the call must carry the mark");
+});
+
+test("bin/hivekit does not mark a call that has a token, with or without --validate", () => {
+  const proc = runLauncherNoToken({ CLAUDE_CODE_OAUTH_TOKEN: "tok" }, { args: ["x", "--name", "--validate"] });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(!proc.stdout.includes("HIVEKIT_TOKEN_GATE_SKIPPED"));
+});
+
+test("bin/hivekit drops a mark inherited from the caller's environment", () => {
+  const proc = runLauncherNoToken({ CLAUDE_CODE_OAUTH_TOKEN: "tok", HIVEKIT_TOKEN_GATE_SKIPPED: "validate" }, { args: ["x"] });
+  assert.equal(proc.status, 0, `stderr: ${proc.stderr}`);
+  assert.ok(!proc.stdout.includes("HIVEKIT_TOKEN_GATE_SKIPPED"), "an inherited mark must not reach the entry point");
+});
+
+test("the entry point refuses a run that carries the validate mark", () => {
+  // The real entry point, not the fake node: `--validate` here is the value of --name, so this is a run. The unknown
+  // provider and missing cwd make sure nothing can start if the refusal is ever removed; the message proves which
+  // check stopped it.
+  const entry = join(__dirname, "..", "dist", "index.js");
+  const proc = spawnSync(process.execPath, [entry, "do a thing", "--name", "--validate", "--cwd", join(tmpdir(), "hivekit-no-such-dir")], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, HOME: mkdtempSync(join(tmpdir(), "hk-mark-")), HIVEKIT_TOKEN_GATE_SKIPPED: "validate", HIVEKIT_PROVIDER: "none-such" },
+  });
+  assert.equal(proc.status, 3, `stderr: ${proc.stderr}`);
+  assert.match(proc.stderr, /sign-in check was skipped for validation only/);
+});
+
+test("bin/hivekit --agent without --validate still needs a token", () => {
+  const proc = runLauncherNoToken({}, { args: ["--agent", "x.md"] });
+  assert.equal(proc.status, 3, `stderr: ${proc.stderr}`);
 });
 
 test("bin/hivekit exits 3 when the Keychain holds a null accessToken", () => {
