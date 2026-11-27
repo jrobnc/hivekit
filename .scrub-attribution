@@ -1,0 +1,6 @@
+# Files where the author signs this published project. Read by the hive-assistant scrub gate
+# (pipeline/scrub_gate.py): the owner name and GitHub login are allowed in these files only.
+LICENSE
+README.md
+docs/listing.md
+plugins/hivekit/plugin.json
